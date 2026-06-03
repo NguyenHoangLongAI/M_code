@@ -33,10 +33,21 @@ def parse_args():
 def main():
     args = parse_args()
 
-    if not GEMINI_API_KEY:
-        print("ERROR: GEMINI_API_KEY environment variable is not set.")
-        print("  export GEMINI_API_KEY=AIza...")
+    # ── Init key pool ─────────────────────────────────────────
+    from utils.key_pool import init_pool
+    try:
+        from keys import GEMINI_KEYS
+        keys = [k for k in GEMINI_KEYS if k.strip()]
+    except ImportError:
+        keys = []
+    if GEMINI_API_KEY and GEMINI_API_KEY not in keys:
+        keys.append(GEMINI_API_KEY)
+    if not keys:
+        print("ERROR: No Gemini API keys found.")
+        print("  Option 1: Edit keys.py and add keys to GEMINI_KEYS list")
+        print("  Option 2: export GEMINI_API_KEY=AIza...")
         sys.exit(1)
+    init_pool(keys)
 
     source_path = Path(args.source)
     if not source_path.is_file():

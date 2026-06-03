@@ -69,8 +69,8 @@ def _merge_batch(originals: list[dict], translated: list[dict]) -> list[dict]:
             "csharp_snippet":     tr.get("csharp_snippet", "// TODO: manual migration"),
             "summary_vi":         tr.get("summary_vi", ""),
             "migration_strategy": tr.get("migration_strategy", ""),
-            "risk_level":         tr.get("risk_level", "Trung bình"),
-            "risk_strategy":      tr.get("risk_strategy", "AI chủ động suggest"),
+            "risk_level":         tr.get("risk_level", "中"),
+            "risk_strategy":      tr.get("risk_strategy", "AI提案"),
         })
     return merged
 
@@ -80,10 +80,10 @@ def _fallback_translate(batch: list[dict]) -> list[dict]:
         {
             "id": p["id"],
             "csharp_snippet": f"// TODO: translate pattern id={p['id']}",
-            "summary_vi": "Cần kiểm tra thủ công.",
-            "migration_strategy": "Manual review required.",
-            "risk_level": "Cao",
-            "risk_strategy": "Làm thủ công",
+            "summary_vi": "手動確認が必要です。",
+            "migration_strategy": "手動レビューが必要です。",
+            "risk_level": "高",
+            "risk_strategy": "手動対応",
         }
         for p in batch
     ]

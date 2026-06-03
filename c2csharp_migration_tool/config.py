@@ -7,9 +7,9 @@ import os
 # ─────────────────────────────────────────────
 # Google Gemini API
 # ─────────────────────────────────────────────
-GEMINI_API_KEY = ""
-GEMINI_MODEL   = "gemini-2.5-flash"          # hoặc gemini-1.5-pro
-MAX_TOKENS     = 8192
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_MODEL   = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+MAX_TOKENS     = 32768
 
 # ─────────────────────────────────────────────
 # Output paths
@@ -19,21 +19,21 @@ PATTERN_CSV        = "patterns.csv"
 CSHARP_FILE_SUFFIX = "_migrated.cs"
 
 # ─────────────────────────────────────────────
-# CSV columns
+# CSV columns (Japanese)
 # ─────────────────────────────────────────────
 CSV_COLUMNS = [
-    "No",
-    "Pattern_C_ProC",
-    "Pattern_Type",
-    "Pattern_SubType",
-    "Pattern_Group",
-    "Summary",
-    "Pattern_CSharp",
-    "Difficulty",
-    "Migration_Strategy",
-    "Risk_Level",
-    "Risk_Strategy",
-    "CSharp_Popularity",
+    "番号",               # No
+    "C_ProCパターン",     # Pattern_C_ProC
+    "パターン種別",       # Pattern_Type
+    "サブタイプ",         # Pattern_SubType
+    "パターングループ",   # Pattern_Group
+    "概要",               # Summary
+    "C#パターン",         # Pattern_CSharp
+    "難易度",             # Difficulty
+    "移行戦略",           # Migration_Strategy
+    "リスクレベル",       # Risk_Level
+    "リスク戦略",         # Risk_Strategy
+    "C#普及度",           # CSharp_Popularity
 ]
 
 # ─────────────────────────────────────────────
@@ -55,13 +55,24 @@ PATTERN_TYPES = {
     "metadata":     ["rcs_tag", "pragma_pack", "comment_block"],
 }
 
-DIFFICULTY_LEVELS = ["Dễ", "Trung bình", "Khó", "Rất khó"]
+# ─────────────────────────────────────────────
+# Difficulty levels (Japanese)
+# ─────────────────────────────────────────────
+DIFFICULTY_LEVELS = ["易しい", "普通", "難しい", "非常に難しい"]
 
+# ─────────────────────────────────────────────
+# Risk levels (Japanese)
+# ─────────────────────────────────────────────
+RISK_LEVELS = ["低", "中", "高", "非常に高い"]
+
+# ─────────────────────────────────────────────
+# Risk strategies (Japanese)
+# ─────────────────────────────────────────────
 RISK_STRATEGIES = [
-    "Auto convert",
-    "Rules theo bối cảnh",
-    "AI chủ động suggest",
-    "Làm thủ công",
+    "自動変換",         # Auto convert
+    "コンテキスト依存", # Rules by context
+    "AI提案",           # AI suggest
+    "手動対応",         # Manual
 ]
 
 POPULARITY_SCALE = "x/5"

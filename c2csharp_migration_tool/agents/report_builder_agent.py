@@ -12,19 +12,19 @@ def build_csv_rows(migration_data: list[dict]) -> list[dict]:
     """
     Convert the enriched pattern list into CSV-ready dicts.
 
-    Column mapping:
-      No                   ← id
-      Pattern_C_ProC       ← source_snippet
-      Pattern_Type         ← pattern_type
-      Pattern_SubType      ← sub_types  (joined)
-      Pattern_Group        ← pattern_group (joined)
-      Summary              ← summary_vi
-      Pattern_CSharp       ← csharp_snippet
-      Difficulty           ← difficulty
-      Migration_Strategy   ← migration_strategy
-      Risk_Level           ← risk_level
-      Risk_Strategy        ← risk_strategy
-      CSharp_Popularity    ← "{csharp_popularity}/5"
+    Column mapping (Japanese):
+      番号               ← id
+      C_ProCパターン     ← source_snippet
+      パターン種別       ← pattern_type
+      サブタイプ         ← sub_types  (joined)
+      パターングループ   ← pattern_group (joined)
+      概要               ← summary_vi
+      C#パターン         ← csharp_snippet
+      難易度             ← difficulty
+      移行戦略           ← migration_strategy
+      リスクレベル       ← risk_level
+      リスク戦略         ← risk_strategy
+      C#普及度           ← "{csharp_popularity}/5"
     """
     rows = []
     for p in migration_data:
@@ -33,18 +33,18 @@ def build_csv_rows(migration_data: list[dict]) -> list[dict]:
         popularity = p.get("csharp_popularity", 3)
 
         row = {
-            "No":                 str(p.get("id", "")),
-            "Pattern_C_ProC":     p.get("source_snippet", ""),
-            "Pattern_Type":       p.get("pattern_type", ""),
-            "Pattern_SubType":    "; ".join(sub_types) if isinstance(sub_types, list) else str(sub_types),
-            "Pattern_Group":      "; ".join(pat_group) if isinstance(pat_group, list) else str(pat_group),
-            "Summary":            p.get("summary_vi", ""),
-            "Pattern_CSharp":     p.get("csharp_snippet", ""),
-            "Difficulty":         p.get("difficulty", ""),
-            "Migration_Strategy": p.get("migration_strategy", ""),
-            "Risk_Level":         p.get("risk_level", ""),
-            "Risk_Strategy":      p.get("risk_strategy", ""),
-            "CSharp_Popularity":  f"{popularity}/5",
+            "番号":             str(p.get("id", "")),
+            "C_ProCパターン":   p.get("source_snippet", ""),
+            "パターン種別":     p.get("pattern_type", ""),
+            "サブタイプ":       "; ".join(sub_types) if isinstance(sub_types, list) else str(sub_types),
+            "パターングループ": "; ".join(pat_group) if isinstance(pat_group, list) else str(pat_group),
+            "概要":             p.get("summary_vi", ""),
+            "C#パターン":       p.get("csharp_snippet", ""),
+            "難易度":           p.get("difficulty", ""),
+            "移行戦略":         p.get("migration_strategy", ""),
+            "リスクレベル":     p.get("risk_level", ""),
+            "リスク戦略":       p.get("risk_strategy", ""),
+            "C#普及度":         f"{popularity}/5",
         }
         rows.append(row)
 
@@ -54,15 +54,15 @@ def build_csv_rows(migration_data: list[dict]) -> list[dict]:
 def print_summary(rows: list[dict]) -> None:
     """Print a terminal summary table."""
     print("\n" + "═" * 90)
-    print(f"{'No':>4}  {'Type':<18} {'Difficulty':<12} {'Risk':<12} {'Popularity':>10}")
+    print(f"{'番号':>4}  {'種別':<18} {'難易度':<14} {'リスク':<14} {'普及度':>8}")
     print("─" * 90)
     for r in rows:
         print(
-            f"{r['No']:>4}  "
-            f"{r['Pattern_Type']:<18} "
-            f"{r['Difficulty']:<12} "
-            f"{r['Risk_Level']:<12} "
-            f"{r['CSharp_Popularity']:>10}"
+            f"{r['番号']:>4}  "
+            f"{r['パターン種別']:<18} "
+            f"{r['難易度']:<14} "
+            f"{r['リスクレベル']:<14} "
+            f"{r['C#普及度']:>8}"
         )
     print("═" * 90)
-    print(f"Total patterns: {len(rows)}\n")
+    print(f"パターン合計: {len(rows)}\n")

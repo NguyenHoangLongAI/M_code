@@ -1,0 +1,1169 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>C → C# Migration Tool</title>
+<style>
+:root {
+  --bg:#0d1117; --s1:#161b22; --s2:#1c2128; --s3:#21262d;
+  --bd:#30363d; --bd2:#3d444d;
+  --green:#3fb950; --blue:#58a6ff; --yellow:#d29922;
+  --red:#f85149; --orange:#f0883e; --purple:#bc8cff;
+  --text:#e6edf3; --dim:#8b949e; --dim2:#656d76;
+  --mono:'Cascadia Code','Fira Code',Consolas,monospace;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;display:flex;flex-direction:column}
+button{font-family:inherit;cursor:pointer;border-radius:6px;border:1px solid var(--bd);font-weight:600;transition:all .15s}
+button:disabled{opacity:.35;cursor:not-allowed}
+
+/* ── HEADER ── */
+.hdr{background:var(--s1);border-bottom:1px solid var(--bd);height:44px;padding:0 14px;display:flex;align-items:center;gap:10px;flex-shrink:0}
+.hdr-logo{font-size:17px}
+.hdr-title{font-size:14px;font-weight:700}
+.hdr-title em{color:var(--blue);font-style:normal}
+.chip{font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;border:1px solid;white-space:nowrap}
+.chip-gem{color:#85c1e9;border-color:#1a5276;background:rgba(26,82,118,.3)}
+.chip-ok{color:var(--green);border-color:#196c2e;background:rgba(25,108,46,.2)}
+.chip-err{color:var(--red);border-color:#6e1010;background:rgba(110,16,16,.2)}
+.hdr-right{margin-left:auto;display:flex;align-items:center;gap:7px}
+.hdr-server-url{font-family:var(--mono);font-size:11px;color:var(--dim);background:var(--s3);border:1px solid var(--bd);border-radius:4px;padding:3px 7px;outline:none;width:165px}
+.btn-sm{font-size:11px;padding:3px 9px;background:transparent;color:var(--text)}
+.btn-sm:hover{background:var(--s3)}
+
+/* ── OUTER LAYOUT ── */
+.body{display:flex;flex:1;overflow:hidden}
+
+/* ── SIDEBAR ── */
+.sidebar{width:210px;min-width:210px;background:var(--s1);border-right:1px solid var(--bd);display:flex;flex-direction:column;overflow:hidden}
+.sb-hdr{padding:10px 13px 6px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--dim2);flex-shrink:0}
+.file-list{flex:1;overflow-y:auto;padding:0 7px 7px}
+.fi{display:flex;align-items:center;gap:7px;padding:7px 9px;border-radius:6px;cursor:pointer;margin-bottom:2px;border:1px solid transparent;transition:background .1s}
+.fi:hover{background:var(--s2)}
+.fi.active{background:rgba(88,166,255,.1);border-color:rgba(88,166,255,.3)}
+.fi-icon{font-size:15px;flex-shrink:0}
+.fi-info{flex:1;min-width:0}
+.fi-name{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fi-meta{font-size:10px;color:var(--dim);margin-top:1px}
+.fi-badge{font-size:10px;padding:2px 5px;border-radius:10px;background:var(--s3);color:var(--dim);white-space:nowrap}
+.fi-badge.done{background:rgba(63,185,80,.15);color:var(--green)}
+.fi-badge.busy{background:rgba(88,166,255,.15);color:var(--blue)}
+.sb-foot{padding:8px 13px;border-top:1px solid var(--bd);font-size:10.5px;color:var(--dim);flex-shrink:0}
+
+/* ── WORKSPACE ── */
+.workspace{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;position:relative}
+
+/* ── ACTION BAR ── */
+.action-bar{background:var(--s2);border-bottom:1px solid var(--bd);padding:6px 12px;display:flex;align-items:center;gap:7px;flex-shrink:0}
+.btn-run{padding:5px 14px;font-size:12px;background:var(--blue);color:#0d1117;border-color:var(--blue)}
+.btn-run:hover:not(:disabled){opacity:.85}
+.btn-cancel{padding:5px 12px;font-size:12px;background:transparent;color:var(--red);border-color:var(--red);display:none}
+.btn-cancel:hover{background:rgba(248,81,73,.1)}
+.btn-clear{padding:5px 10px;font-size:11.5px;background:transparent;color:var(--dim)}
+.btn-clear:hover{color:var(--text);background:var(--s3)}
+.btn-dl{font-size:11px;padding:4px 9px;background:transparent;color:var(--green);border-color:var(--green)}
+.btn-dl:hover{background:rgba(63,185,80,.1)}
+.btn-dl.blue{color:var(--blue);border-color:var(--blue)}
+.btn-dl.blue:hover{background:rgba(88,166,255,.1)}
+
+/* Pipeline strip */
+.pipeline-bar{background:var(--s2);border-bottom:1px solid var(--bd);padding:5px 12px;display:flex;align-items:center;gap:4px;flex-shrink:0;overflow-x:auto}
+.ag{display:flex;align-items:center;gap:3px;padding:2px 9px;border-radius:14px;border:1px solid var(--bd);font-size:10.5px;white-space:nowrap;color:var(--dim);transition:all .2s}
+.ag .n{font-weight:700}
+.ag.run{border-color:var(--blue);color:var(--blue);background:rgba(88,166,255,.08)}
+.ag.done{border-color:var(--green);color:var(--green);background:rgba(63,185,80,.08)}
+.ag.err{border-color:var(--red);color:var(--red);background:rgba(248,81,73,.08)}
+.ag-sep{color:var(--bd);font-size:12px}
+.pipe-elapsed{margin-left:auto;font-size:10.5px;color:var(--dim)}
+.st-txt{font-size:11px;color:var(--dim)}
+.st-run{color:var(--blue)} .st-ok{color:var(--green)} .st-err{color:var(--red)}
+
+/* ════ TOP SECTION ════ */
+.top-section{flex:0 0 58%;display:flex;overflow:hidden;border-bottom:2px solid var(--bd2);min-height:0}
+.code-pane{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+.code-pane+.code-pane{border-left:2px solid var(--bd2)}
+.pane-bar{background:var(--s2);border-bottom:1px solid var(--bd);padding:5px 12px;display:flex;align-items:center;gap:7px;font-size:11.5px;flex-shrink:0;height:32px}
+.pane-bar .pb-label{font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.5px;padding:2px 7px;border-radius:4px;white-space:nowrap}
+.pb-c{background:rgba(240,136,62,.15);color:var(--orange);border:1px solid rgba(240,136,62,.3)}
+.pb-cs{background:rgba(88,166,255,.15);color:var(--blue);border:1px solid rgba(88,166,255,.3)}
+.pane-bar .pb-name{font-family:var(--mono);font-size:11px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+.pane-bar .pb-meta{font-size:10px;color:var(--dim2);white-space:nowrap;flex-shrink:0}
+.pane-bar .pb-pin{font-size:10px;color:var(--dim);margin-left:4px;cursor:default}
+
+/* Code view — line-based for highlight */
+.code-view{flex:1;overflow:auto;margin:0;padding:0;font-family:var(--mono);font-size:12px;line-height:1.7;background:var(--bg);position:relative}
+.code-lines{padding:8px 0;min-height:100%}
+.code-line{display:flex;min-height:1.7em}
+.code-line:hover{background:rgba(255,255,255,.025)}
+.line-num{width:46px;min-width:46px;text-align:right;padding:0 10px 0 6px;color:var(--dim2);font-size:10.5px;user-select:none;flex-shrink:0}
+.line-body{flex:1;padding-right:16px;white-space:pre;color:var(--text)}
+.code-view.cs .line-body{color:#c9d1d9}
+
+/* Highlight states */
+.code-line.hl-active .line-num{color:var(--blue)}
+.code-line.hl-active .line-body{background:rgba(88,166,255,.13);border-left:2px solid var(--blue);padding-left:2px}
+.code-line.hl-range .line-body{background:rgba(88,166,255,.06)}
+
+/* ════ BOTTOM SECTION ════ */
+.bottom-section{flex:1;display:flex;overflow:hidden;min-height:0}
+
+/* Table area (left of review panel) */
+.tbl-area{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+
+.bottom-bar{background:var(--s2);border-bottom:1px solid var(--bd);padding:5px 12px;display:flex;align-items:center;gap:8px;flex-shrink:0;height:34px}
+.bottom-bar .bb-title{font-size:11px;font-weight:700;color:var(--dim);text-transform:uppercase;letter-spacing:.5px}
+.badge{background:var(--s3);border-radius:10px;padding:1px 6px;font-size:10px}
+.badge.has{background:rgba(63,185,80,.2);color:var(--green)}
+.badge.warn{background:rgba(210,153,34,.2);color:var(--yellow)}
+
+/* Log overlay */
+.log-overlay{display:none;flex-direction:column;overflow:hidden;flex:1}
+.log-overlay.visible{display:flex}
+.log-scroll{flex:1;overflow-y:auto;padding:8px 12px;font-family:var(--mono);font-size:11.5px}
+.log-line{line-height:1.85;display:flex;gap:7px}
+.log-ts{color:var(--dim2);font-size:10px;flex-shrink:0;padding-top:2px}
+.log-msg{flex:1;word-break:break-word}
+.l-step{color:var(--blue);font-weight:700} .l-ok{color:var(--green)} .l-warn{color:var(--yellow)} .l-err{color:var(--red)} .l-sub{color:var(--dim)}
+
+/* Pattern table */
+.tbl-wrap{flex:1;overflow:auto;display:none}
+.tbl-wrap.visible{display:block}
+table{width:100%;border-collapse:collapse;font-size:11px}
+thead th{background:var(--s2);color:var(--dim);font-weight:600;padding:6px 9px;border:1px solid var(--bd);position:sticky;top:0;z-index:2;white-space:nowrap;font-size:10.5px}
+tbody td{padding:5px 9px;border:1px solid var(--bd);vertical-align:top;cursor:default}
+tbody tr{transition:background .1s}
+tbody tr:hover td{background:rgba(88,166,255,.04)}
+tbody tr.row-selected td{background:rgba(88,166,255,.1)!important}
+tbody tr.row-selected td:first-child{border-left:2px solid var(--blue)}
+.c-src{font-family:var(--mono);font-size:10px;color:#79c0ff;white-space:pre;max-width:180px;overflow-x:auto;display:block}
+.c-cs{font-family:var(--mono);font-size:10px;color:#56d364;white-space:pre;max-width:180px;overflow-x:auto;display:block}
+
+/* 難易度 */
+.diff-e{color:var(--green)} .diff-m{color:var(--yellow)} .diff-h{color:var(--orange)} .diff-x{color:var(--red)}
+/* リスクレベル */
+.risk-l{color:var(--green)} .risk-m{color:var(--yellow)} .risk-h{color:var(--orange)} .risk-x{color:var(--red)}
+.rev-yes{color:var(--yellow)}
+
+/* Review status badges in table */
+.rs-badge{display:inline-block;font-size:9.5px;font-weight:700;padding:1px 6px;border-radius:10px;border:1px solid;white-space:nowrap}
+.rs-ok    {color:var(--green); border-color:rgba(63,185,80,.5); background:rgba(63,185,80,.1)}
+.rs-fix   {color:var(--yellow);border-color:rgba(210,153,34,.5);background:rgba(210,153,34,.1)}
+.rs-reject{color:var(--red);   border-color:rgba(248,81,73,.5); background:rgba(248,81,73,.1)}
+.rs-none  {color:var(--dim);   border-color:var(--bd);          background:transparent}
+
+/* ════ REVIEW PANEL (slide-in from right) ════ */
+.review-panel{
+  width:0;min-width:0;overflow:hidden;
+  background:var(--s1);border-left:1px solid var(--bd);
+  display:flex;flex-direction:column;
+  transition:width .22s ease,min-width .22s ease;
+  flex-shrink:0;
+}
+.review-panel.open{width:300px;min-width:300px}
+
+.rp-hdr{padding:10px 14px 8px;border-bottom:1px solid var(--bd);flex-shrink:0;display:flex;align-items:center;gap:8px}
+.rp-title{font-size:12px;font-weight:700;flex:1}
+.rp-id{font-size:10px;color:var(--dim);font-family:var(--mono)}
+.rp-close{background:transparent;border:none;color:var(--dim);font-size:16px;padding:0 2px;line-height:1;cursor:pointer}
+.rp-close:hover{color:var(--text)}
+
+.rp-body{flex:1;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:12px}
+
+.rp-snippet-block{background:var(--s2);border:1px solid var(--bd);border-radius:6px;overflow:hidden}
+.rp-snippet-hdr{padding:5px 10px;font-size:10px;font-weight:700;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:6px}
+.rp-snippet-hdr .lang-c {color:var(--orange)}
+.rp-snippet-hdr .lang-cs{color:var(--blue)}
+.rp-snippet-code{padding:8px 10px;font-family:var(--mono);font-size:10.5px;line-height:1.6;white-space:pre-wrap;word-break:break-all;max-height:110px;overflow-y:auto;color:var(--text)}
+
+.rp-field{display:flex;flex-direction:column;gap:4px}
+.rp-label{font-size:10.5px;font-weight:600;color:var(--dim)}
+
+.rp-status-row{display:flex;gap:6px}
+.rp-status-btn{flex:1;padding:5px 4px;font-size:11px;font-weight:700;background:var(--s2);color:var(--dim);border:1px solid var(--bd);border-radius:6px;cursor:pointer;transition:all .15s;text-align:center}
+.rp-status-btn:hover{background:var(--s3);color:var(--text)}
+.rp-status-btn.sel-ok    {background:rgba(63,185,80,.15); color:var(--green); border-color:rgba(63,185,80,.5)}
+.rp-status-btn.sel-fix   {background:rgba(210,153,34,.15);color:var(--yellow);border-color:rgba(210,153,34,.5)}
+.rp-status-btn.sel-reject{background:rgba(248,81,73,.15); color:var(--red);   border-color:rgba(248,81,73,.5)}
+
+.rp-textarea{width:100%;min-height:80px;resize:vertical;background:var(--s2);border:1px solid var(--bd);border-radius:6px;color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;font-size:12px;line-height:1.5;padding:8px 10px;outline:none;transition:border-color .15s}
+.rp-textarea:focus{border-color:var(--blue)}
+.rp-textarea::placeholder{color:var(--dim2)}
+.rp-mono{font-family:var(--mono);font-size:11px}
+.rp-field-row{flex-direction:row;align-items:center;gap:10px}
+.rp-field-row .rp-label{min-width:80px;flex-shrink:0}
+.rp-select{flex:1;background:var(--s2);border:1px solid var(--bd);border-radius:6px;color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;font-size:12px;padding:5px 8px;outline:none;cursor:pointer;transition:border-color .15s}
+.rp-select:focus{border-color:var(--blue)}
+.rp-select option{background:var(--s2)}
+
+.rp-foot{padding:10px 14px;border-top:1px solid var(--bd);display:flex;gap:7px;flex-shrink:0}
+.rp-save{flex:1;padding:6px;font-size:12px;background:var(--blue);color:#0d1117;border-color:var(--blue)}
+.rp-save:hover{opacity:.85}
+.rp-nav{padding:6px 10px;font-size:12px;background:transparent;color:var(--dim)}
+.rp-nav:hover:not(:disabled){background:var(--s3);color:var(--text)}
+
+/* Empty state */
+.empty-state{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--dim);font-size:12.5px}
+.empty-state svg{opacity:.18}
+
+/* Resize handle */
+.resize-h{height:4px;background:var(--bd);cursor:row-resize;flex-shrink:0;transition:background .15s}
+.resize-h:hover,.resize-h.dragging{background:var(--blue)}
+</style>
+</head>
+<body>
+
+<!-- ════ HEADER ════ -->
+<header class="hdr">
+  <span class="hdr-logo">⚙️</span>
+  <div class="hdr-title">C / Pro*C <em>→</em> C# Migration Tool</div>
+  <span class="chip chip-gem">Gemini</span>
+  <div class="hdr-right">
+    <span id="srvChip" class="chip chip-err">⬤ オフライン</span>
+    <input id="srvUrl" class="hdr-server-url" value="http://127.0.0.1:5005" spellcheck="false">
+    <button class="btn-sm" onclick="pingServer()">↺ 接続確認</button>
+  </div>
+</header>
+
+<!-- ════ BODY ════ -->
+<div class="body">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sb-hdr">📁 tests/ — ソースファイル</div>
+    <div class="file-list" id="fileList">
+      <div style="padding:12px 8px;font-size:11.5px;color:var(--dim)">接続中…</div>
+    </div>
+    <div class="sb-foot" id="sbFoot">—</div>
+  </aside>
+
+  <!-- WORKSPACE -->
+  <div class="workspace">
+
+    <!-- Action bar -->
+    <div class="action-bar">
+      <button class="btn-run"    id="btnRun"    onclick="startMigration()" disabled>▶ 移行実行</button>
+      <button class="btn-cancel" id="btnCancel" onclick="cancelMigration()">✕ キャンセル</button>
+      <button class="btn-clear"  onclick="clearResults()">クリア</button>
+      <span class="st-txt" id="stTxt">ファイルを選択してください</span>
+      <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
+        <button class="btn-dl"      id="btnDlCs"  onclick="dlCS()"  style="display:none">⬇ .cs</button>
+        <button class="btn-dl blue" id="btnDlCsv" onclick="dlCSV()" style="display:none">⬇ CSV</button>
+      </div>
+    </div>
+
+    <!-- Pipeline strip -->
+    <div class="pipeline-bar">
+      <div class="ag" id="ag0"><span class="n">0</span> 読込</div>
+      <span class="ag-sep">›</span>
+      <div class="ag" id="ag1"><span class="n">1</span> 抽出</div>
+      <span class="ag-sep">›</span>
+      <div class="ag" id="ag2"><span class="n">2</span> 分類</div>
+      <span class="ag-sep">›</span>
+      <div class="ag" id="ag3"><span class="n">3</span> 変換</div>
+      <span class="ag-sep">›</span>
+      <div class="ag" id="ag4"><span class="n">4</span> C#生成</div>
+      <span class="ag-sep">›</span>
+      <div class="ag" id="ag5"><span class="n">5</span> CSVレポート</div>
+      <span class="pipe-elapsed" id="pipeTime"></span>
+    </div>
+
+    <!-- ════ TOP: C source | C# output ════ -->
+    <div class="top-section" id="topSection">
+
+      <!-- Left: C / Pro*C source -->
+      <div class="code-pane">
+        <div class="pane-bar">
+          <span class="pb-label pb-c">C / Pro*C</span>
+          <span class="pb-name" id="srcName">— ファイル未選択 —</span>
+          <span class="pb-meta" id="srcMeta"></span>
+          <span class="pb-pin" id="srcPin" title="選択中パターン"></span>
+        </div>
+        <div class="code-view" id="srcCode">
+          <div class="code-lines" id="srcLines">
+            <div style="padding:14px 16px;color:var(--dim)">← サイドバーからファイルを選択</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: C# output -->
+      <div class="code-pane">
+        <div class="pane-bar">
+          <span class="pb-label pb-cs">C# 出力</span>
+          <span class="pb-name" id="csFname">—</span>
+          <span class="pb-meta" id="csMeta"></span>
+          <span class="pb-pin" id="csPin" title="選択中パターン"></span>
+        </div>
+        <div class="code-view cs" id="csCode">
+          <div class="code-lines" id="csLines">
+            <div style="padding:14px 16px;color:var(--dim)">// C# の出力がここに表示されます</div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /top-section -->
+
+    <!-- Resize handle -->
+    <div class="resize-h" id="resizeH"></div>
+
+    <!-- ════ BOTTOM: Pattern Analysis ════ -->
+    <div class="bottom-section" id="bottomSection">
+
+      <!-- Table area -->
+      <div class="tbl-area">
+        <div class="bottom-bar">
+          <span class="bb-title">📊 パターン分析</span>
+          <span class="badge" id="csvBadge">0</span>
+          <span class="badge warn" id="reviewBadge" style="display:none">0 件未レビュー</span>
+          <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
+            <button class="btn-dl" onclick="dlCSV()" style="font-size:10.5px;padding:3px 8px">⬇ CSV エクスポート</button>
+          </div>
+        </div>
+
+        <!-- Log overlay -->
+        <div class="log-overlay visible" id="logOverlay">
+          <div class="log-scroll" id="logScroll">
+            <div class="empty-state" id="logEmpty">
+              <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+                <polyline points="4 17 10 11 4 5"/>
+                <line x1="12" y1="19" x2="20" y2="19"/>
+              </svg>
+              <div><b>▶ 移行実行</b> ボタンを押して開始</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pattern table -->
+        <div class="tbl-wrap" id="tblWrap">
+          <table>
+            <thead><tr id="csvHead"></tr></thead>
+            <tbody id="csvBody"></tbody>
+          </table>
+        </div>
+      </div><!-- /tbl-area -->
+
+      <!-- Review panel (slide-in) -->
+      <div class="review-panel" id="reviewPanel">
+        <div class="rp-hdr">
+          <div>
+            <div class="rp-title">📝 レビュー</div>
+            <div class="rp-id" id="rpId">—</div>
+          </div>
+          <button class="rp-close" onclick="closeReview()" title="閉じる">✕</button>
+        </div>
+
+        <div class="rp-body">
+          <!-- Status -->
+          <div class="rp-field">
+            <div class="rp-label">レビューステータス</div>
+            <div class="rp-status-row">
+              <button class="rp-status-btn" id="rsOk"     onclick="setStatus_r('ok')">✓ 承認</button>
+              <button class="rp-status-btn" id="rsFix"    onclick="setStatus_r('fix')">△ 要修正</button>
+              <button class="rp-status-btn" id="rsReject" onclick="setStatus_r('reject')">✕ 却下</button>
+            </div>
+          </div>
+
+          <!-- 概要 -->
+          <div class="rp-field">
+            <div class="rp-label">概要</div>
+            <textarea class="rp-textarea" id="rp_summary" rows="3"></textarea>
+          </div>
+
+          <!-- C#パターン -->
+          <div class="rp-field">
+            <div class="rp-label">C#パターン</div>
+            <textarea class="rp-textarea rp-mono" id="rp_csharp" rows="5"></textarea>
+          </div>
+
+          <!-- 難易度 -->
+          <div class="rp-field rp-field-row">
+            <div class="rp-label">難易度</div>
+            <select class="rp-select" id="rp_difficulty">
+              <option value="易しい">易しい</option>
+              <option value="普通">普通</option>
+              <option value="難しい">難しい</option>
+              <option value="非常に難しい">非常に難しい</option>
+            </select>
+          </div>
+
+          <!-- 移行戦略 -->
+          <div class="rp-field">
+            <div class="rp-label">移行戦略</div>
+            <textarea class="rp-textarea" id="rp_strategy" rows="2"></textarea>
+          </div>
+
+          <!-- リスクレベル -->
+          <div class="rp-field rp-field-row">
+            <div class="rp-label">リスクレベル</div>
+            <select class="rp-select" id="rp_risk_level">
+              <option value="低">低</option>
+              <option value="中">中</option>
+              <option value="高">高</option>
+              <option value="非常に高い">非常に高い</option>
+            </select>
+          </div>
+
+          <!-- リスク戦略 -->
+          <div class="rp-field rp-field-row">
+            <div class="rp-label">リスク戦略</div>
+            <select class="rp-select" id="rp_risk_strategy">
+              <option value="自動変換">自動変換</option>
+              <option value="コンテキスト依存">コンテキスト依存</option>
+              <option value="AI提案">AI提案</option>
+              <option value="手動対応">手動対応</option>
+            </select>
+          </div>
+
+          <!-- C#普及度 -->
+          <div class="rp-field rp-field-row">
+            <div class="rp-label">C#普及度</div>
+            <select class="rp-select" id="rp_popularity">
+              <option value="1">1/5</option>
+              <option value="2">2/5</option>
+              <option value="3">3/5</option>
+              <option value="4">4/5</option>
+              <option value="5">5/5</option>
+            </select>
+          </div>
+
+        </div><!-- /rp-body -->
+
+        <div class="rp-foot">
+          <button class="rp-nav" id="rpPrev" onclick="navReview(-1)" title="前のパターン">◀ 前</button>
+          <button class="rp-save" onclick="saveReview()">保存</button>
+          <button class="rp-nav" id="rpNext" onclick="navReview(+1)" title="次のパターン">次 ▶</button>
+        </div>
+      </div><!-- /review-panel -->
+
+    </div><!-- /bottom-section -->
+
+  </div><!-- /workspace -->
+</div><!-- /body -->
+
+<script>
+'use strict';
+
+/* ════════════════════════════════════════════════════════════════
+   STATE
+════════════════════════════════════════════════════════════════ */
+const POLL_INTERVAL = 30_000;
+let selFile     = null;
+let patterns    = [];
+let csText      = '';
+let srcLines    = [];   // raw lines of C source
+let csLinesArr  = [];   // raw lines of C# output
+let sse         = null;
+let running     = false;
+let startTs     = 0;
+const cache     = {};
+
+// reviews: { [patternId]: { status: 'ok'|'fix'|'reject'|null, comment: string } }
+let reviews     = {};
+let activeReviewId = null;   // currently open pattern id in review panel
+
+const $ = id => document.getElementById(id);
+const ts = () => new Date().toLocaleTimeString('ja-JP',{hour12:false});
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+function serverUrl(){ return ($('srvUrl').value||'http://127.0.0.1:5005').replace(/\/$/,'') }
+
+function setStatus(msg,cls=''){
+  const el=$('stTxt'); el.textContent=msg;
+  el.className='st-txt'+(cls?' '+cls:'');
+}
+
+/* ════════════════════════════════════════════════════════════════
+   PIPELINE / AGENT NODES
+════════════════════════════════════════════════════════════════ */
+function agSet(id,state){
+  const el=$(id); if(!el) return;
+  el.classList.remove('run','done','err');
+  if(state) el.classList.add(state);
+}
+function agsDone(upTo){
+  for(let i=0;i<=5;i++) agSet('ag'+i, i<upTo?'done':i===upTo?'run':'');
+}
+
+/* ════════════════════════════════════════════════════════════════
+   LOG
+════════════════════════════════════════════════════════════════ */
+function addLog(msg,cls=''){
+  const wrap=$('logScroll');
+  $('logEmpty')?.remove();
+  const line=document.createElement('div');
+  line.className='log-line';
+  line.innerHTML=`<span class="log-ts">${ts()}</span><span class="log-msg ${cls}">${esc(msg)}</span>`;
+  wrap.appendChild(line);
+  wrap.scrollTop=wrap.scrollHeight;
+}
+function showTable(){ $('logOverlay').classList.remove('visible'); $('tblWrap').classList.add('visible'); }
+function showLog()  { $('tblWrap').classList.remove('visible'); $('logOverlay').classList.add('visible'); }
+
+/* ════════════════════════════════════════════════════════════════
+   LINE-BASED CODE VIEW
+   Render source into numbered lines so we can highlight by line #
+════════════════════════════════════════════════════════════════ */
+function renderCodeLines(containerId, linesArr) {
+  const container = $(containerId);
+  container.innerHTML = '';
+  linesArr.forEach((text, i) => {
+    const row = document.createElement('div');
+    row.className = 'code-line';
+    row.dataset.line = i + 1;
+    row.innerHTML = `<span class="line-num">${i+1}</span><span class="line-body">${esc(text)}</span>`;
+    container.appendChild(row);
+  });
+}
+
+/**
+ * Highlight lines [startLine, endLine] (1-based, inclusive) in a container.
+ * scrollIntoView the first highlighted line.
+ */
+function highlightLines(containerId, startLine, endLine, scroll=true) {
+  const container = $(containerId);
+  container.querySelectorAll('.code-line').forEach(row => {
+    row.classList.remove('hl-active','hl-range');
+    const ln = +row.dataset.line;
+    if (ln === startLine) row.classList.add('hl-active');
+    else if (ln > startLine && ln <= endLine) row.classList.add('hl-range');
+  });
+  if (scroll) {
+    const first = container.querySelector(`.code-line[data-line="${startLine}"]`);
+    if (first) {
+      // container (srcLines/csLines) sits inside the scrollable div.code-view
+      const view = container.parentElement;   // div.code-view is the scroll container
+      const lineH = first.getBoundingClientRect().height || 20;
+      const targetTop = (startLine - 1) * lineH;
+      const viewH = view.clientHeight;
+      view.scrollTo({ top: Math.max(0, targetTop - viewH * 0.3), behavior: 'smooth' });
+    }
+  }
+}
+
+function clearHighlights(containerId) {
+  const container = $(containerId);
+  container.querySelectorAll('.code-line').forEach(r => r.classList.remove('hl-active','hl-range'));
+}
+
+/* ════════════════════════════════════════════════════════════════
+   FIND LINES FOR A SNIPPET in a lines array
+   Anchor on first substantial non-trivial line; scan for match.
+   Returns [startLine, endLine] (1-based) or null.
+════════════════════════════════════════════════════════════════ */
+function findSnippetLines(snippet, linesArr) {
+  if (!snippet || !linesArr.length) return null;
+  const snippetLines = snippet.split('\n');
+  const snippetLen   = snippetLines.length;
+  // Pick best anchor: first non-trivial line (length > 3, not just braces/whitespace)
+  const anchor = snippetLines.find(l => {
+    const t = l.trim();
+    return t.length > 3 && !/^[{}()\s*\/]+$/.test(t);
+  }) || snippetLines.find(l => l.trim()) || '';
+  if (!anchor.trim()) return null;
+  const anchorTrim = anchor.trim();
+  for (let i = 0; i < linesArr.length; i++) {
+    if (linesArr[i].includes(anchorTrim)) {
+      return [i + 1, i + snippetLen];
+    }
+  }
+  return null;
+}
+
+function findSrcLines(pattern) {
+  // Prefer line_range from Agent1 when plausible
+  const [sl, el] = pattern.line_range || [0, 0];
+  if (sl > 0 && el >= sl && srcLines.length > 0) {
+    const snippet  = (pattern.source_snippet || '').trim();
+    const firstWord = snippet.split(/\W+/).find(w => w.length > 2) || '';
+    const rangeText = srcLines.slice(sl - 1, el).join('\n');
+    if (!firstWord || rangeText.includes(firstWord)) return [sl, el];
+  }
+  // Fallback: text search
+  return findSnippetLines(pattern.source_snippet || '', srcLines);
+}
+
+function findCsLines(pattern) {
+  return findSnippetLines(pattern.csharp_snippet || '', csLinesArr);
+}
+
+/* ════════════════════════════════════════════════════════════════
+   ROW CLICK → highlight both panes + open review panel
+════════════════════════════════════════════════════════════════ */
+function onRowClick(patternId) {
+  const p = patterns.find(x => x.id === patternId);
+  if (!p) return;
+
+  // Highlight table row
+  document.querySelectorAll('#csvBody tr').forEach(tr =>
+    tr.classList.toggle('row-selected', +tr.dataset.pid === patternId));
+
+  // ── C source highlight — use findSrcLines (verifies line_range, falls back to text search) ──
+  const srcRange = findSrcLines(p);
+  if (srcRange) {
+    highlightLines('srcLines', srcRange[0], srcRange[1]);
+    $('srcPin').textContent = `L${srcRange[0]}–${srcRange[1]}`;
+  } else {
+    clearHighlights('srcLines');
+    $('srcPin').textContent = '';
+  }
+
+  // ── C# output highlight ──
+  const csRange = findCsLines(p);
+  if (csRange) {
+    highlightLines('csLines', csRange[0], csRange[1]);
+    $('csPin').textContent = `L${csRange[0]}–${csRange[1]}`;
+  } else {
+    clearHighlights('csLines');
+    $('csPin').textContent = '';
+  }
+
+  // Open review panel
+  openReview(patternId);
+}
+
+/* ════════════════════════════════════════════════════════════════
+   REVIEW PANEL
+════════════════════════════════════════════════════════════════ */
+function openReview(patternId) {
+  const p = patterns.find(x => x.id === patternId);
+  if (!p) return;
+  activeReviewId = patternId;
+
+  // Header
+  $('rpId').textContent = `#${p.id} — ${p.raw_type || p.pattern_type || ''}`;
+
+  // Load saved edits for this pattern (fall back to pattern values)
+  const rv = reviews[patternId] || {};
+  const ed = rv.edits || {};   // edited field values
+
+  // Status
+  setStatus_r(rv.status || null, false);
+
+  // 7 editable fields — show saved edits if any, else original pattern value
+  $('rp_summary').value     = ed.summary_vi         ?? (p.summary_vi          || '');
+  $('rp_csharp').value      = ed.csharp_snippet      ?? (p.csharp_snippet       || '');
+  $('rp_strategy').value    = ed.migration_strategy  ?? (p.migration_strategy   || '');
+
+  // Selects: set to saved/original value
+  setSelectVal('rp_difficulty',    ed.difficulty     ?? p.difficulty    ?? '普通');
+  setSelectVal('rp_risk_level',    ed.risk_level     ?? p.risk_level    ?? '中');
+  setSelectVal('rp_risk_strategy', ed.risk_strategy  ?? p.risk_strategy ?? 'AI提案');
+  $('rp_popularity').value = String(ed.csharp_popularity ?? p.csharp_popularity ?? 3);
+
+  // Nav buttons
+  const idx = patterns.findIndex(x => x.id === patternId);
+  $('rpPrev').disabled = idx <= 0;
+  $('rpNext').disabled = idx >= patterns.length - 1;
+
+  // Open panel
+  $('reviewPanel').classList.add('open');
+}
+
+function setSelectVal(id, val) {
+  const sel = $(id);
+  for (const opt of sel.options) {
+    if (opt.value === String(val)) { opt.selected = true; return; }
+  }
+  // fallback: first option
+  if (sel.options.length) sel.options[0].selected = true;
+}
+
+function closeReview() {
+  $('reviewPanel').classList.remove('open');
+  activeReviewId = null;
+  // Clear all highlights
+  clearHighlights('srcLines');
+  clearHighlights('csLines');
+  $('srcPin').textContent = '';
+  $('csPin').textContent  = '';
+  document.querySelectorAll('#csvBody tr').forEach(tr => tr.classList.remove('row-selected'));
+}
+
+function setStatus_r(status, updateUI=true) {
+  ['rsOk','rsFix','rsReject'].forEach(id => {
+    const btn = $(id);
+    btn.classList.remove('sel-ok','sel-fix','sel-reject');
+  });
+  if (status === 'ok')     $('rsOk').classList.add('sel-ok');
+  if (status === 'fix')    $('rsFix').classList.add('sel-fix');
+  if (status === 'reject') $('rsReject').classList.add('sel-reject');
+
+  if (updateUI && activeReviewId != null) {
+    if (!reviews[activeReviewId]) reviews[activeReviewId] = { status: null, edits: {} };
+    reviews[activeReviewId].status = status;
+    refreshReviewBadge();
+    updateRowReviewBadge(activeReviewId);
+  }
+}
+
+function saveReview() {
+  if (activeReviewId == null) return;
+
+  // Status
+  let status = null;
+  if ($('rsOk').classList.contains('sel-ok'))             status = 'ok';
+  else if ($('rsFix').classList.contains('sel-fix'))       status = 'fix';
+  else if ($('rsReject').classList.contains('sel-reject')) status = 'reject';
+
+  // Collect edited fields
+  const edits = {
+    summary_vi:         $('rp_summary').value.trim(),
+    csharp_snippet:     $('rp_csharp').value.trim(),
+    difficulty:         $('rp_difficulty').value,
+    migration_strategy: $('rp_strategy').value.trim(),
+    risk_level:         $('rp_risk_level').value,
+    risk_strategy:      $('rp_risk_strategy').value,
+    csharp_popularity:  parseInt($('rp_popularity').value, 10),
+  };
+
+  // Save into reviews store
+  reviews[activeReviewId] = { status, edits };
+
+  // Apply edits back to the live patterns array so table + highlight stay in sync
+  const p = patterns.find(x => x.id === activeReviewId);
+  if (p) Object.assign(p, edits);
+
+  refreshReviewBadge();
+  updateRowReviewBadge(activeReviewId);
+  // Re-render just that row's data cells
+  updateTableRow(activeReviewId);
+
+  // Flash save button
+  const btn = $('reviewPanel').querySelector('.rp-save');
+  btn.textContent = '✓ 保存済み';
+  setTimeout(() => { btn.textContent = '保存'; }, 1200);
+}
+
+function navReview(dir) {
+  saveReview();   // auto-save before nav
+  const idx = patterns.findIndex(x => x.id === activeReviewId);
+  const next = patterns[idx + dir];
+  if (next) onRowClick(next.id);
+}
+
+function refreshReviewBadge() {
+  const pending = patterns.filter(p => !reviews[p.id]?.status).length;
+  const badge = $('reviewBadge');
+  if (patterns.length === 0) { badge.style.display='none'; return; }
+  badge.style.display = 'inline-block';
+  badge.textContent   = `${pending} 件未レビュー`;
+  badge.className     = pending === 0 ? 'badge has' : 'badge warn';
+}
+
+function updateRowReviewBadge(patternId) {
+  const tr = document.querySelector(`#csvBody tr[data-pid="${patternId}"]`);
+  if (!tr) return;
+  const cell = tr.querySelector('.rv-cell');
+  if (!cell) return;
+  cell.innerHTML = reviewBadgeHtml(patternId);
+}
+
+/* Re-render all data cells of a row after field edits are saved */
+function updateTableRow(patternId) {
+  const tr = document.querySelector(`#csvBody tr[data-pid="${patternId}"]`);
+  if (!tr) return;
+  const p  = patterns.find(x => x.id === patternId);
+  if (!p)  return;
+  // Rebuild all cells except the sticky review cell
+  const editableCols = COLS.filter(c => c.k !== '_review');
+  const tds = tr.querySelectorAll('td:not(.rv-cell)');
+  editableCols.forEach((col, i) => {
+    const td = tds[i];
+    if (!td) return;
+    let v = p[col.k];
+    if (Array.isArray(v))               v = v.join('; ');
+    else if (col.k === 'csharp_popularity') v = v != null ? `${v}/5` : '—';
+    else if (col.k === 'needs_review')  v = v ? '⚠' : '';
+    else                                v = v ?? '';
+    td.textContent = v;
+    let cls = col.cls;
+    if (col.k === 'difficulty') cls += ' ' + diffCls(String(v));
+    if (col.k === 'risk_level') cls += ' ' + riskCls(String(v));
+    if (col.k === 'needs_review' && v) cls += ' rev-yes';
+    td.className = cls.trim();
+  });
+}
+
+function reviewBadgeHtml(patternId) {
+  const rv = reviews[patternId];
+  if (!rv?.status) return '<span class="rs-badge rs-none">未</span>';
+  if (rv.status === 'ok')     return '<span class="rs-badge rs-ok">✓ 承認</span>';
+  if (rv.status === 'fix')    return '<span class="rs-badge rs-fix">△ 修正</span>';
+  if (rv.status === 'reject') return '<span class="rs-badge rs-reject">✕ 却下</span>';
+  return '';
+}
+
+/* ════════════════════════════════════════════════════════════════
+   SERVER
+════════════════════════════════════════════════════════════════ */
+async function pingServer(){
+  try{
+    const r=await fetch(serverUrl()+'/health',{signal:AbortSignal.timeout(3000)});
+    const d=await r.json();
+    $('srvChip').textContent=`⬤ ${d.model}`;
+    $('srvChip').className='chip chip-ok';
+    $('sbFoot').textContent=`${d.file_count} ファイル · ${d.model}`;
+    await loadFileList();
+  }catch(_){
+    $('srvChip').textContent='⬤ オフライン';
+    $('srvChip').className='chip chip-err';
+    $('sbFoot').textContent='python server.py が起動していません';
+    $('fileList').innerHTML=`<div style="padding:12px 9px;font-size:11px;color:var(--dim);line-height:1.9">
+      ⚠ サーバー未起動<br>
+      <code style="font-size:10.5px;color:var(--yellow)">python server.py</code>
+    </div>`;
+  }
+}
+
+async function loadFileList(){
+  const r=await fetch(serverUrl()+'/api/files');
+  const d=await r.json();
+  renderFileList(d.files||[]);
+}
+
+function renderFileList(files){
+  const list=$('fileList'); list.innerHTML='';
+  if(!files.length){
+    list.innerHTML='<div style="padding:10px;font-size:11.5px;color:var(--dim)">tests/ にファイルがありません</div>';
+    return;
+  }
+  files.forEach(f=>{
+    const div=document.createElement('div');
+    div.className='fi'+(selFile?.name===f.name?' active':'');
+    div.dataset.name=f.name;
+    div.onclick=()=>selectFile(f.name);
+    const c=cache[f.name];
+    const badgeCls=c?'done':(running&&selFile?.name===f.name?'busy':'');
+    const badgeTxt=c?'✓':f.ext.replace('.','').toUpperCase();
+    div.innerHTML=`
+      <span class="fi-icon">${f.ext==='.pc'?'🗃':'📄'}</span>
+      <div class="fi-info">
+        <div class="fi-name">${esc(f.name)}</div>
+        <div class="fi-meta">${f.lines} 行 · ${(f.size/1024).toFixed(1)} KB</div>
+      </div>
+      <span class="fi-badge ${badgeCls}">${badgeTxt}</span>`;
+    list.appendChild(div);
+  });
+}
+
+async function selectFile(name){
+  document.querySelectorAll('.fi').forEach(el=>el.classList.toggle('active',el.dataset.name===name));
+  try{
+    const r=await fetch(`${serverUrl()}/api/file?name=${encodeURIComponent(name)}`);
+    const d=await r.json();
+    if(d.error) throw new Error(d.error);
+    selFile=d;
+    srcLines = d.content.split('\n');
+    renderCodeLines('srcLines', srcLines);
+    $('srcName').textContent=d.name;
+    $('srcMeta').textContent=`${srcLines.length}行 · ${(d.size/1024).toFixed(1)}KB`;
+    $('btnRun').disabled=false;
+    setStatus(`準備完了: ${d.name}`);
+    if(cache[name]) restoreCache(name);
+    else clearResults(false);
+  }catch(e){
+    $('srcLines').innerHTML=`<div style="padding:14px 16px;color:var(--red)">エラー: ${esc(e.message)}</div>`;
+    setStatus('ファイル読み込みエラー','st-err');
+  }
+}
+
+function restoreCache(name){
+  const c=cache[name];
+  patterns=c.patterns; csText=c.cs;
+  csLinesArr = csText.split('\n');
+  renderCodeLines('csLines', csLinesArr);
+  renderCSV(patterns);
+  $('csFname').textContent=name.replace(/\.(c|pc|h)$/i,'_migrated.cs');
+  $('csMeta').textContent=csText.length.toLocaleString()+' 文字';
+  $('csvBadge').textContent=patterns.length;
+  $('csvBadge').className='badge has';
+  $('btnDlCs').style.display='inline-block';
+  $('btnDlCsv').style.display='inline-block';
+  for(let i=0;i<=5;i++) agSet('ag'+i,'done');
+  setStatus(`キャッシュ済み — ${patterns.length} パターン`,'st-ok');
+  refreshReviewBadge();
+  showTable();
+}
+
+/* ════════════════════════════════════════════════════════════════
+   PIPELINE (SSE)
+════════════════════════════════════════════════════════════════ */
+function startMigration(){
+  if(running||!selFile) return;
+  running=true; startTs=Date.now();
+  reviews = {};
+  $('btnRun').disabled=true;
+  $('btnCancel').style.display='inline-block';
+  $('pipeTime').textContent='';
+  closeReview();
+  showLog();
+  for(let i=0;i<=5;i++) agSet('ag'+i,'');
+  $('csLines').innerHTML='<div style="padding:14px 16px;color:var(--dim)">// 生成中…</div>';
+  addLog(`▶ 開始: ${selFile.name}`,'l-step');
+  setStatus('実行中…','st-run');
+  if(sse){sse.close();sse=null;}
+  const url=`${serverUrl()}/api/migrate?name=${encodeURIComponent(selFile.name)}`;
+  sse=new EventSource(url);
+  sse.onmessage=ev=>{
+    let event;
+    try{event=JSON.parse(ev.data);}catch(_){addLog('⚠ '+ev.data,'l-warn');return;}
+    handleEvent(event);
+  };
+  sse.onerror=()=>{
+    if(!running) return;
+    addLog('❌ SSE 接続が切断されました','l-err');
+    setStatus('接続エラー','st-err');
+    finishRun(false);
+  };
+}
+
+function cancelMigration(){
+  if(sse){sse.close();sse=null;}
+  addLog('⚠ キャンセルされました','l-warn');
+  setStatus('キャンセル');
+  finishRun(false);
+}
+
+function handleEvent(ev){
+  switch(ev.type){
+    case 'step':
+      agsDone(ev.step);
+      addLog(`▶ ステップ ${ev.step}/5 — ${ev.label}`,'l-step');
+      setStatus(`ステップ ${ev.step}/5: ${ev.label}`,'st-run');
+      break;
+    case 'log':{
+      const m=ev.msg||'';
+      if(!/\[Agent\d\]|WARNING|ERROR|✓|Batch \d|patterns|Generated|Written/.test(m)) break;
+      const cls=ev.level==='error'?'l-err':ev.level==='warn'?'l-warn':m.startsWith('  [Agent')?'l-sub':'';
+      addLog(m,cls);
+      break;
+    }
+    case 'done':{
+      sse.close(); sse=null;
+      patterns=ev.patterns||[];
+      for(let i=0;i<=5;i++) agSet('ag'+i,'done');
+      fetch(`${serverUrl()}/api/output?name=${encodeURIComponent(selFile.name)}`)
+        .then(r=>r.text())
+        .then(cs=>{
+          csText=cs;
+          csLinesArr = cs.split('\n');
+          renderCodeLines('csLines', csLinesArr);
+          const csName=selFile.name.replace(/\.(c|pc|h)$/i,'_migrated.cs');
+          $('csFname').textContent=csName;
+          $('csMeta').textContent=cs.length.toLocaleString()+' 文字';
+          $('btnDlCs').style.display='inline-block';
+          $('btnDlCsv').style.display='inline-block';
+          renderCSV(patterns);
+          $('csvBadge').textContent=patterns.length;
+          $('csvBadge').className='badge has';
+          cache[selFile.name]={patterns,cs};
+          loadFileList();
+          const elapsed=((Date.now()-startTs)/1000).toFixed(1);
+          $('pipeTime').textContent=`✓ ${elapsed}s`;
+          addLog(`✅ 完了 — ${patterns.length} パターン · ${elapsed}s`,'l-ok');
+          setStatus(`✓ 完了: ${patterns.length} パターン · ${elapsed}s`,'st-ok');
+          refreshReviewBadge();
+          finishRun(true);
+          showTable();
+        })
+        .catch(e=>{
+          addLog(`⚠ .cs 取得エラー: ${e.message}`,'l-warn');
+          renderCSV(patterns);
+          finishRun(true);
+          showTable();
+        });
+      break;
+    }
+    case 'error':{
+      sse.close(); sse=null;
+      addLog(`❌ ${ev.msg}`,'l-err');
+      if(ev.trace) addLog(ev.trace.split('\n').slice(-3).join(' '),'l-err');
+      setStatus('パイプラインエラー','st-err');
+      finishRun(false);
+      break;
+    }
+  }
+}
+
+function finishRun(ok){
+  running=false; sse=null;
+  $('btnRun').disabled=!selFile;
+  $('btnCancel').style.display='none';
+}
+
+/* ════════════════════════════════════════════════════════════════
+   CSV TABLE
+════════════════════════════════════════════════════════════════ */
+const COLS=[
+  {k:'id',                 h:'番号',           cls:''},
+  {k:'source_snippet',     h:'C/Pro*Cパターン',cls:'c-src'},
+  {k:'raw_type',           h:'種別',           cls:''},
+  {k:'pattern_type',       h:'パターン種別',   cls:''},
+  {k:'sub_types',          h:'サブタイプ',     cls:''},
+  {k:'pattern_group',      h:'グループ',       cls:''},
+  {k:'summary_vi',         h:'概要',           cls:''},
+  {k:'csharp_snippet',     h:'C#パターン',     cls:'c-cs'},
+  {k:'difficulty',         h:'難易度',         cls:''},
+  {k:'migration_strategy', h:'移行戦略',       cls:''},
+  {k:'risk_level',         h:'リスクレベル',   cls:''},
+  {k:'risk_strategy',      h:'リスク戦略',     cls:''},
+  {k:'csharp_popularity',  h:'C#普及度',       cls:''},
+  {k:'needs_review',       h:'要確認',         cls:''},
+  {k:'_review',            h:'レビュー',       cls:'rv-cell'},   // synthetic
+];
+
+function diffCls(v){
+  if(v==='易しい')       return 'diff-e';
+  if(v==='普通')         return 'diff-m';
+  if(v==='難しい')       return 'diff-h';
+  if(v==='非常に難しい') return 'diff-x';
+  return '';
+}
+function riskCls(v){
+  if(v==='低')         return 'risk-l';
+  if(v==='中')         return 'risk-m';
+  if(v==='高')         return 'risk-h';
+  if(v==='非常に高い') return 'risk-x';
+  return '';
+}
+
+function renderCSV(data){
+  const head=$('csvHead'), body=$('csvBody');
+  head.innerHTML=''; body.innerHTML='';
+  COLS.forEach(c=>{
+    const th=document.createElement('th');
+    th.textContent=c.h;
+    if(c.k==='_review') th.style.cssText='position:sticky;right:0;background:var(--s2);z-index:3;';
+    head.appendChild(th);
+  });
+  data.forEach(p=>{
+    const tr=document.createElement('tr');
+    tr.dataset.pid = p.id;
+    tr.style.cursor = 'pointer';
+    tr.onclick = () => onRowClick(p.id);
+    COLS.forEach(col=>{
+      const td=document.createElement('td');
+      if(col.k==='_review'){
+        // sticky review status column
+        td.className='rv-cell';
+        td.style.cssText='position:sticky;right:0;background:var(--s2);';
+        td.innerHTML=reviewBadgeHtml(p.id);
+        tr.appendChild(td);
+        return;
+      }
+      let v=p[col.k];
+      if(Array.isArray(v))            v=v.join('; ');
+      else if(col.k==='csharp_popularity') v=v!=null?`${v}/5`:'—';
+      else if(col.k==='needs_review') v=v?'⚠':'';
+      else                            v=v??'';
+      td.textContent=v;
+      let cls=col.cls;
+      if(col.k==='difficulty') cls+=' '+diffCls(String(v));
+      if(col.k==='risk_level') cls+=' '+riskCls(String(v));
+      if(col.k==='needs_review'&&v) cls+=' rev-yes';
+      td.className=cls.trim();
+      tr.appendChild(td);
+    });
+    body.appendChild(tr);
+  });
+}
+
+/* ════════════════════════════════════════════════════════════════
+   CLEAR
+════════════════════════════════════════════════════════════════ */
+function clearResults(resetSel=true){
+  if(sse){sse.close();sse=null;}
+  patterns=[]; csText=''; csLinesArr=[]; reviews={};
+  closeReview();
+  $('logScroll').innerHTML=`
+    <div class="empty-state" id="logEmpty">
+      <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+        <polyline points="4 17 10 11 4 5"/>
+        <line x1="12" y1="19" x2="20" y2="19"/>
+      </svg>
+      <div><b>▶ 移行実行</b> ボタンを押して開始</div>
+    </div>`;
+  showLog();
+  $('csvBadge').textContent='0'; $('csvBadge').className='badge';
+  $('reviewBadge').style.display='none';
+  $('csLines').innerHTML='<div style="padding:14px 16px;color:var(--dim)">// C# の出力がここに表示されます</div>';
+  $('csFname').textContent='—'; $('csMeta').textContent='';
+  $('btnDlCs').style.display='none'; $('btnDlCsv').style.display='none';
+  $('pipeTime').textContent=''; $('srcPin').textContent=''; $('csPin').textContent='';
+  for(let i=0;i<=5;i++) agSet('ag'+i,'');
+  if(resetSel) setStatus('ファイルを選択してください');
+}
+
+/* ════════════════════════════════════════════════════════════════
+   DOWNLOAD
+════════════════════════════════════════════════════════════════ */
+function dlCS(){
+  if(!csText) return;
+  const name=(selFile?.name||'output').replace(/\.(c|pc|h)$/i,'_migrated.cs');
+  _dl(csText,name,'text/plain');
+}
+function dlCSV(){
+  if(!patterns.length) return;
+  const e2=v=>'"'+String(v).replace(/"/g,'""')+'"';
+  const statusMap={'ok':'承認','fix':'要修正','reject':'却下'};
+  // patterns[] already has edits applied via saveReview→Object.assign
+  // Add one extra column for review status
+  const exportCols=[...COLS.filter(c=>c.k!=='_review'),{k:'_rv_status',h:'レビューステータス'}];
+  const hdr=exportCols.map(c=>e2(c.h)).join(',');
+  const rows=patterns.map(p=>{
+    const rv=reviews[p.id]||{};
+    return exportCols.map(col=>{
+      if(col.k==='_rv_status') return e2(statusMap[rv.status]||'未レビュー');
+      let v=p[col.k];
+      if(Array.isArray(v))                    v=v.join('; ');
+      else if(col.k==='csharp_popularity')    v=v!=null?`${v}/5`:'';
+      else if(col.k==='needs_review')         v=v?'要確認':'';
+      else                                    v=v??'';
+      return e2(v);
+    }).join(',');
+  });
+  const name=(selFile?.name||'output').replace(/\.(c|pc|h)$/i,'_patterns.csv');
+  _dl('\uFEFF'+[hdr,...rows].join('\n'),name,'text/csv');
+}
+function _dl(content,filename,mime){
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([content],{type:mime}));
+  a.download=filename; a.click();
+}
+
+/* ════════════════════════════════════════════════════════════════
+   RESIZE HANDLE
+════════════════════════════════════════════════════════════════ */
+(()=>{
+  const handle=$('resizeH'), top=$('topSection');
+  const workspace=top.parentElement;
+  let dragging=false,startY=0,startTopH=0;
+  handle.addEventListener('mousedown',e=>{
+    dragging=true; startY=e.clientY;
+    startTopH=top.getBoundingClientRect().height;
+    handle.classList.add('dragging');
+    document.body.style.userSelect='none';
+    document.body.style.cursor='row-resize';
+  });
+  document.addEventListener('mousemove',e=>{
+    if(!dragging) return;
+    const wsH=workspace.getBoundingClientRect().height;
+    const delta=e.clientY-startY;
+    const newTopH=Math.max(120,Math.min(wsH-120,startTopH+delta));
+    top.style.flex=`0 0 ${(newTopH/wsH*100).toFixed(1)}%`;
+  });
+  document.addEventListener('mouseup',()=>{
+    if(!dragging) return;
+    dragging=false;
+    handle.classList.remove('dragging');
+    document.body.style.userSelect='';
+    document.body.style.cursor='';
+  });
+})();
+
+/* ── Init ── */
+pingServer();
+setInterval(pingServer,POLL_INTERVAL);
+</script>
+</body>
+</html>

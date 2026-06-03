@@ -66,7 +66,7 @@ def _normalise_batch(originals: list[dict], classified: list[dict]) -> list[dict
             "pattern_type":      cls.get("pattern_type", "unknown"),
             "sub_types":         cls.get("sub_types", []),
             "pattern_group":     cls.get("pattern_group", []),
-            "difficulty":        cls.get("difficulty", "Trung bình"),
+            "difficulty":        cls.get("difficulty", "普通"),
             "csharp_popularity": cls.get("csharp_popularity", 3),
         })
     return merged
@@ -80,7 +80,7 @@ def _fallback_classify(batch: list[dict]) -> list[dict]:
             "pattern_type": p.get("raw_type", "unknown"),
             "sub_types": [],
             "pattern_group": [],
-            "difficulty": "Trung bình",
+            "difficulty": "普通",
             "csharp_popularity": 3,
         }
         for p in batch
