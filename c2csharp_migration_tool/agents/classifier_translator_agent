@@ -1,0 +1,48 @@
+"""
+agents/classifier_translator_agent.py — AGENT 2+3 (merged)
+Classify + Translate in a single LLM call per batch.
+"""
+import json
+from utils.api_client import call_claude, parse_json_response
+from prompts.agent_prompts import CLASSIFIER_TRANSLATOR_SYSTEM, CLASSIFIER_TRANSLATOR_USER
+
+BATCH_SIZE = 30  # patterns per call
+
+
+def classify_and_translate(extracted: list[dict], source_code: str) -> list[dict]:
+    print(f"  [Agent2+3] Classify + Translate {len(extracted)} patterns "
+          f"(batch size={BATCH_SIZE}) ...")
+
+    results = []
+    batches = [extracted[i:i+BATCH_SIZE] for i in range(0, len(extracted), BATCH_SIZE)]
+
+    for idx, batch in enumerate(batches, 1):
+        print(f"  [Agent2+3] Batch {idx}/{len(batches)} "
+              f"(patterns {batch[0]['id']}–{batch[-1]['id']}) ...")
+
+        user_prompt = CLASSIFIER_TRANSLATOR_USER.format(
+            extracted_json=json.dumps(batch, ensure_ascii=False, indent=2),
+            source_code=source_code,
+        )
+
+        for attempt in range(1, 4):
+            raw = call_claude(CLASSIFIER_TRANSLATOR_SYSTEM, user_prompt, max_tokens=65536)
+            try:
+                batch_result = parse_json_response(raw)
+                if batch_result:
+                    break
+            except ValueError as exc:
+                print(f"  [Agent2+3] WARNING attempt {attempt}: {exc}")
+                if attempt == 3:
+                    batch_result = []
+
+        # Merge: keep all fields from extracted, overlay with new fields
+        id_map = {p['id']: p for p in batch}
+        for r in batch_result:
+            pid = r.get('id')
+            base = id_map.get(pid, {})
+            merged = {**base, **r}  # Agent 2+3 fields override, source fields preserved
+            results.append(merged)
+
+    print(f"  [Agent2+3] Done — {len(results)} patterns classified+translated.")
+    return results
