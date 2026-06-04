@@ -1,15 +1,28 @@
 """
 C to C# Migration Tool - Configuration
+AWS Bedrock + Claude Opus 4.5
 """
 
 import os
 
 # ─────────────────────────────────────────────
-# Google Gemini API
+# AWS Bedrock Configuration
 # ─────────────────────────────────────────────
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-GEMINI_MODEL   = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
-MAX_TOKENS     = 65536
+AWS_ACCESS_KEY_ID     = os.environ.get("AWS_ACCESS_KEY_ID", "")
+AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY", "")
+AWS_SESSION_TOKEN     = os.environ.get("AWS_SESSION_TOKEN", "")      # optional (for temp creds)
+AWS_REGION            = os.environ.get("AWS_REGION", "us-east-1")
+
+# Claude Opus 4.5 on Bedrock
+BEDROCK_MODEL_ID = os.environ.get(
+    "BEDROCK_MODEL_ID",
+    "anthropic.claude-opus-4-5"
+)
+
+# Display name (used in UI / logs)
+GEMINI_MODEL = BEDROCK_MODEL_ID   # keep var name for backward-compat with server.py
+
+MAX_TOKENS = 16000     # Bedrock Claude — safe cap (adjust per your quota)
 
 # ─────────────────────────────────────────────
 # Output paths
