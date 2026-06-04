@@ -1,304 +1,148 @@
 """
 utils/api_client.py
-Gemini API wrapper với Key Pool rotation.
-
-Features:
-- Auto rotate key khi gặp rate limit (429 retryable)
-- Dừng ngay khi gặp Daily Quota Exhausted
-- Retry cho lỗi 5xx/network
-- Cache client theo API key
+AWS Bedrock — dùng boto3 với credentials extract từ bedrock-api-key
 """
-
-import json
-import re
-import threading
-import time
+import json, re, time, random, urllib.parse, base64
+import boto3
+from botocore.config import Config
 from typing import Optional
-
-from google import genai
-from google.genai import types
-from google.genai.errors import APIError
-
-from config import GEMINI_MODEL, MAX_TOKENS
-from utils.key_pool import (
-    get_key,
-    mark_blocked,
-    mark_success,
-    mark_dead,
-    status,
-)
+from config import MAX_TOKENS, BEDROCK_MODEL_ID
+from utils.key_pool import get_aws_config, mark_success, mark_blocked
 
 
-# ============================================================
-# Client cache
-# ============================================================
-
-_clients: dict[str, genai.Client] = {}
-_clients_lock = threading.Lock()
-
-
-def _get_client(key: str) -> genai.Client:
-    with _clients_lock:
-        if key not in _clients:
-            _clients[key] = genai.Client(api_key=key)
-
-        return _clients[key]
-
-
-# ============================================================
-# Helpers
-# ============================================================
-
-def _parse_retry_after(msg: str) -> Optional[float]:
+def _parse_bedrock_key(api_key: str) -> dict:
     """
-    Parse:
-        retry in 17.3s
-        retry after 30s
+    Decode bedrock-api-key-<base64> → extract AWS temp credentials.
+    URL dạng: bedrock.amazonaws.com/?Action=CallWithBearerToken
+              &X-Amz-Credential=KEYID%2FDATE%2FREGION%2F...
+              &X-Amz-Security-Token=...
+              &X-Amz-Signature=...
     """
-    match = re.search(
-        r"retry.{0,20}?([0-9]+(?:\.[0-9]+)?)\s*s",
-        msg,
-        re.IGNORECASE,
+    b64 = api_key.removeprefix("bedrock-api-key-")
+    b64 += "=" * (-len(b64) % 4)
+    decoded = base64.b64decode(b64).decode("utf-8")
+
+    # Parse query string
+    qs = urllib.parse.parse_qs(decoded.split("?", 1)[-1])
+
+    # X-Amz-Credential = AKID/DATE/REGION/bedrock/aws4_request
+    credential_str = qs.get("X-Amz-Credential", [""])[0]
+    parts = credential_str.split("/")
+    access_key_id = parts[0] if parts else ""
+
+    security_token = qs.get("X-Amz-Security-Token", [""])[0]
+    signature      = qs.get("X-Amz-Signature",      [""])[0]
+
+    return {
+        "aws_access_key_id":     access_key_id,
+        "aws_secret_access_key": signature,      # dùng signature làm secret
+        "aws_session_token":     security_token,
+    }
+
+
+def _get_client(region: str, creds: dict):
+    return boto3.client(
+        "bedrock-runtime",
+        region_name=region,
+        aws_access_key_id=creds["aws_access_key_id"],
+        aws_secret_access_key=creds["aws_secret_access_key"],
+        aws_session_token=creds["aws_session_token"],
+        config=Config(
+            read_timeout=300,
+            connect_timeout=10,
+            retries={"max_attempts": 0},  # tự handle retry
+        ),
     )
 
-    if match:
-        return float(match.group(1))
-
-    return None
-
-
-def _is_daily_quota_error(msg: str) -> bool:
-    """
-    Detect daily quota exhaustion.
-
-    Example:
-        GenerateRequestsPerDayPerModel-FreeTier
-        quota exceeded for metric
-        free_tier_requests
-    """
-
-    msg = msg.lower()
-
-    patterns = [
-        "generaterequestsperday",
-        "quota exceeded for metric",
-        "free_tier_requests",
-        "perday",
-    ]
-
-    return any(p in msg for p in patterns)
-
-
-def _short_key(key: str) -> str:
-    if len(key) < 16:
-        return key
-
-    return f"{key[:10]}...{key[-4:]}"
-
-
-# ============================================================
-# Core API
-# ============================================================
 
 def call_claude(
     system_prompt: str,
     user_prompt: str,
     max_tokens: int = MAX_TOKENS,
-    max_key_rotations: int = 12,
-    non_rate_retries: int = 3,
+    max_retries: int = 6,
 ) -> str:
-    """
-    Gemini API wrapper.
+    cfg      = get_aws_config()
+    model_id = cfg.get("model_id") or BEDROCK_MODEL_ID
+    region   = cfg.get("region_name", "ap-southeast-1")
+    api_key  = cfg.get("bedrock_api_key", "")
 
-    Returns:
-        str
+    if not api_key:
+        raise RuntimeError("BEDROCK_API_KEY chưa được cấu hình.")
 
-    Raises:
-        RuntimeError
-        APIError
-    """
+    creds  = _parse_bedrock_key(api_key)
+    client = _get_client(region, creds)
+
+    body = {
+        "messages": [
+            {"role": "user", "content": [{"text": user_prompt}]}  # bỏ "type"
+        ],
+        "inferenceConfig": {"maxTokens": max_tokens, "temperature": 0.2},
+    }
+    if system_prompt:
+        body["system"] = [{"text": system_prompt}]
 
     last_err = None
-    rotations = 0
+    for attempt in range(1, max_retries + 1):
+        try:
+            print(f"[API] Bedrock boto3 — model={model_id} region={region} attempt={attempt}/{max_retries}")
+            resp = client.converse(modelId=model_id, **body)
 
-    while rotations < max_key_rotations:
+            content = resp.get("output", {}).get("message", {}).get("content", [])
+            text    = "".join(b.get("text", "") for b in content if b.get("type") == "text")
 
-        key = get_key()
+            if not text:
+                raise RuntimeError(f"Response rỗng: {resp}")
 
-        if not key:
-            raise RuntimeError(
-                "No Gemini API key available."
-            )
+            mark_success("bedrock")
+            return text
 
-        client = _get_client(key)
+        except client.exceptions.ThrottlingException:
+            wait = _backoff(attempt)
+            print(f"[API] ThrottlingException. Waiting {wait:.0f}s ...")
+            mark_blocked("bedrock", wait)
+            time.sleep(wait)
 
-        print(
-            f"[API] Using key {_short_key(key)} "
-            f"(rotation {rotations + 1}/{max_key_rotations})"
-        )
+        except client.exceptions.ModelErrorException as e:
+            raise RuntimeError(f"Model error: {e}")
 
-        for attempt in range(1, non_rate_retries + 1):
-
-            try:
-
-                response = client.models.generate_content(
-                    model=GEMINI_MODEL,
-                    contents=user_prompt,
-                    config=types.GenerateContentConfig(
-                        system_instruction=system_prompt or None,
-                        max_output_tokens=max_tokens,
-                        temperature=0.2,
-                    ),
+        except Exception as e:
+            err_str = str(e)
+            # Key hết hạn
+            if "ExpiredToken" in err_str or "expired" in err_str.lower():
+                raise RuntimeError(
+                    "Bedrock key đã hết hạn (12h).\n"
+                    "→ Vào AWS Console → Bedrock → API keys → Generate key mới."
                 )
+            if "AccessDenied" in err_str or "UnrecognizedClient" in err_str:
+                raise RuntimeError(f"Credentials không hợp lệ: {e}")
 
-                text = getattr(response, "text", None)
+            last_err = err_str
+            wait = _backoff(attempt)
+            print(f"[API] Error attempt {attempt}: {e}. Waiting {wait:.0f}s ...")
+            if attempt < max_retries:
+                time.sleep(wait)
 
-                if not text:
-                    raise RuntimeError(
-                        "Gemini returned empty response."
-                    )
-
-                mark_success(key)
-
-                return text
-
-            except APIError as exc:
-
-                last_err = exc
-
-                code = getattr(exc, "code", None) or 0
-                msg = getattr(exc, "message", str(exc))
-
-                # --------------------------------------------------
-                # 429
-                # --------------------------------------------------
-                if code == 429:
-
-                    if _is_daily_quota_error(msg):
-                        print(
-                            f"[API] Daily quota exhausted "
-                            f"for {_short_key(key)}"
-                        )
-
-                        mark_dead(key)
-
-                        rotations += 1
-
-                        break
-
-                    retry_after = _parse_retry_after(msg)
-
-                    print(
-                        f"[API] Rate limit on {_short_key(key)} "
-                        f"-> rotating key"
-                    )
-
-                    mark_blocked(
-                        key,
-                        retry_after
-                    )
-
-                    rotations += 1
-
-                    break
-
-                # --------------------------------------------------
-                # 5xx
-                # --------------------------------------------------
-                elif code in (500, 502, 503, 504):
-
-                    wait = min(5 * attempt, 30)
-
-                    print(
-                        f"[API] Server error {code} "
-                        f"(attempt {attempt}/{non_rate_retries}) "
-                        f"Retry in {wait}s"
-                    )
-
-                    if attempt < non_rate_retries:
-                        time.sleep(wait)
-                        continue
-
-                    rotations += 1
-                    break
-
-                # --------------------------------------------------
-                # Other API errors
-                # --------------------------------------------------
-                else:
-                    raise
-
-            except Exception as exc:
-
-                last_err = exc
-
-                wait = min(5 * attempt, 30)
-
-                print(
-                    f"[API] Network/Unknown error "
-                    f"(attempt {attempt}/{non_rate_retries}): "
-                    f"{exc}"
-                )
-
-                if attempt < non_rate_retries:
-                    time.sleep(wait)
-                    continue
-
-                rotations += 1
-                break
-
-    raise RuntimeError(
-        f"Gemini API failed after "
-        f"{rotations} key rotation(s). "
-        f"Last error: {last_err}"
-    )
+    raise RuntimeError(f"Bedrock thất bại sau {max_retries} lần. Lỗi: {last_err}")
 
 
-# ============================================================
-# JSON Helpers
-# ============================================================
+def _backoff(attempt: int) -> float:
+    return min(2 ** attempt, 60) + random.uniform(0, 2)
+
 
 def strip_json_fences(text: str) -> str:
-
     text = text.strip()
-
-    text = re.sub(
-        r"^```(?:json)?\s*",
-        "",
-        text,
-    )
-
-    text = re.sub(
-        r"\s*```$",
-        "",
-        text,
-    )
-
+    text = re.sub(r"^```(?:json)?\s*", "", text)
+    text = re.sub(r"\s*```$", "", text)
     return text.strip()
 
 
 def parse_json_response(raw: str):
-
     clean = strip_json_fences(raw)
-
     try:
         return json.loads(clean)
-
     except json.JSONDecodeError as exc:
-
-        match = re.search(
-            r"(\[[\s\S]*\]|\{[\s\S]*\})",
-            clean,
-        )
-
-        if match:
-            try:
-                return json.loads(match.group(1))
-            except json.JSONDecodeError:
-                pass
-
-        raise ValueError(
-            f"Cannot parse JSON.\n"
-            f"Error: {exc}\n"
-            f"Raw:\n{raw[:500]}"
-        )
+        m = re.search(r"(\[[\s\S]*\]|\{[\s\S]*\})", clean)
+        if m:
+            try: return json.loads(m.group(1))
+            except: pass
+        raise ValueError(f"Cannot parse JSON.\nError: {exc}\nRaw:\n{raw[:500]}")
