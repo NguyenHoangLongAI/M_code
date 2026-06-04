@@ -6,7 +6,7 @@ import json
 from utils.api_client import call_claude, parse_json_response
 from prompts.agent_prompts import CLASSIFIER_TRANSLATOR_SYSTEM, CLASSIFIER_TRANSLATOR_USER
 
-BATCH_SIZE = 30  # patterns per call
+BATCH_SIZE = 50  # patterns per call
 
 
 def classify_and_translate(extracted: list[dict], source_code: str) -> list[dict]:
@@ -26,14 +26,14 @@ def classify_and_translate(extracted: list[dict], source_code: str) -> list[dict
         )
 
         for attempt in range(1, 4):
-            raw = call_claude(CLASSIFIER_TRANSLATOR_SYSTEM, user_prompt, max_tokens=65536)
+            raw = call_claude(CLASSIFIER_TRANSLATOR_SYSTEM, user_prompt, max_tokens=16000)
             try:
                 batch_result = parse_json_response(raw)
                 if batch_result:
                     break
             except ValueError as exc:
                 print(f"  [Agent2+3] WARNING attempt {attempt}: {exc}")
-                if attempt == 3:
+                if attempt == 2:
                     batch_result = []
 
         # Merge: keep all fields from extracted, overlay with new fields
