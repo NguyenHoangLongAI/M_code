@@ -1,23 +1,22 @@
 """
 main.py
-CLI entry point — Gemini backend.
+CLI entry point — AWS Bedrock / Claude Opus 4.5
 """
 import sys
 import argparse
 from pathlib import Path
-from config import OUTPUT_DIR, GEMINI_API_KEY
+from config import OUTPUT_DIR
 
-# ── Key pool init ──────────────────────────────────────────────
-from keys import GEMINI_KEYS
+# ── Bedrock credential init ────────────────────────────────────
 from utils.key_pool import init_pool
-init_pool(GEMINI_KEYS)
+init_pool()
 # ──────────────────────────────────────────────────────────────
 
 
 def parse_args():
     parser = argparse.ArgumentParser(
         prog="c2csharp",
-        description="Migrate C / Pro*C source to C# with pattern analysis (Gemini).",
+        description="Migrate C / Pro*C source to C# with pattern analysis (AWS Bedrock / Claude Opus 4.5).",
     )
     parser.add_argument("source", help="Path to the C or Pro*C source file (.c, .h, .pc)")
     parser.add_argument("--output", "-o", default=OUTPUT_DIR,
