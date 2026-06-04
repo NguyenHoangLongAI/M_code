@@ -7,7 +7,7 @@ import json
 from utils.api_client import call_claude, parse_json_response
 from prompts.agent_prompts import TRANSLATOR_SYSTEM, TRANSLATOR_USER
 
-_BATCH_SIZE = 12  # smaller: each pattern may have large snippet + response
+_BATCH_SIZE = 64  # smaller: each pattern may have large snippet + response
 
 
 def translate_patterns(classified: list[dict], source_code: str) -> list[dict]:
@@ -22,7 +22,7 @@ def translate_patterns(classified: list[dict], source_code: str) -> list[dict]:
                 classified_json=json.dumps(batch, ensure_ascii=False, indent=2),
                 source_code=source_code,
             ),
-            max_tokens=65536,
+            max_tokens=16000,
         )
         try:
             translated = parse_json_response(raw)
