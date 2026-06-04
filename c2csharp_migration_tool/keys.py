@@ -1,20 +1,12 @@
 """
-keys.py — Gemini API Key Pool
-==============================
-Thêm keys của bạn vào list GEMINI_KEYS bên dưới.
-Lấy key tại: https://aistudio.google.com/apikey
+keys.py — AWS Bedrock Inline API Key
+======================================
+Lấy từ: AWS Console → Amazon Bedrock → API keys → Generate → Copy API Key
 
-Mỗi tài khoản Google AI Studio Free có:
-  - 15 RPM  (requests per minute)
-  - 1500 RPD (requests per day)
-  - 1M TPM  (tokens per minute)
-
-Dùng nhiều key → tăng throughput khi một key bị 429.
+⚠️ Key hết hạn sau 12 giờ (short-term). Cần generate lại khi hết hạn.
+⚠️ ĐỪNG commit file này lên git.
 """
 
-GEMINI_KEYS: list[str] = [
-    # Thêm keys của bạn vào đây, mỗi key một dòng:
-    # "AIzaSy...",
-    # "AIzaSy...",
-    # "AIzaSy...",
-]
+BEDROCK_API_KEY  = "bedrock-api-key- .... ="                      # ← paste key vào đây: bedrock-api-key-...
+AWS_REGION       = "ap-southeast-2"        # region bạn generate key
+BEDROCK_MODEL_ID = "au.anthropic.claude-sonnet-4-5-20250929-v1:0"
