@@ -22,7 +22,7 @@ _current_idx: int           = 0    # round-robin pointer
 _blocked: dict[str, float]  = {}   # key → unblock_timestamp
 _call_count: dict[str, int] = {}   # key → total successful calls
 _block_count: dict[str, int]= {}   # key → total times blocked
-
+_dead: set[str] = set()
 COOLDOWN_SECS = 65   # wait after 429 before retrying a key
 
 
@@ -33,53 +33,109 @@ def init_pool(keys: list[str]) -> None:
     Khởi tạo pool với danh sách keys.
     Nên gọi một lần khi khởi động.
     """
-    global _keys, _current_idx, _blocked, _call_count, _block_count
+    global _keys, _current_idx, _blocked, _call_count, _block_count, _dead
+
     with _lock:
-        _keys       = [k.strip() for k in keys if k.strip()]
+        _keys = [k.strip() for k in keys if k.strip()]
         _current_idx = 0
-        _blocked    = {}
+        _blocked = {}
+        _dead = set()
         _call_count = {k: 0 for k in _keys}
-        _block_count= {k: 0 for k in _keys}
+        _block_count = {k: 0 for k in _keys}
     if _keys:
         print(f"  [KeyPool] Loaded {len(_keys)} key(s).")
     else:
         print("  [KeyPool] No keys in pool — using env GEMINI_API_KEY fallback.")
 
+def mark_dead(key: str) -> None:
+    """
+    Key/project đã hết quota ngày.
+    Không được sử dụng lại trong process hiện tại.
+    """
+
+    with _lock:
+
+        if key not in _keys:
+            return
+
+        _dead.add(key)
+
+        key_short = key[:12] + "…" + key[-4:]
+
+        print(
+            f"  [KeyPool] Key {key_short} permanently disabled "
+            f"(daily quota exhausted)."
+        )
 
 def get_key() -> str:
-    """
-    Trả về key tiếp theo khả dụng.
-    Block cho đến khi có key (nếu tất cả đang cooldown).
-    """
-    with _lock:
-        if not _keys:
-            # Fallback: empty pool → use env key
-            from config import GEMINI_API_KEY
-            return GEMINI_API_KEY
 
-        now = time.time()
+    global _current_idx
 
-        # Try round-robin from current index
-        for offset in range(len(_keys)):
-            idx = (_current_idx + offset) % len(_keys)
-            key = _keys[idx]
-            if _blocked.get(key, 0) <= now:
-                # Found an available key
-                _current_idx = (idx + 1) % len(_keys)
-                return key
+    while True:
 
-        # All keys blocked → find the one that unblocks soonest
-        earliest_key = min(_blocked, key=_blocked.get)
-        wait = max(0.0, _blocked[earliest_key] - now)
+        with _lock:
 
-    # Release lock before sleeping
-    if wait > 0:
-        print(f"  [KeyPool] All {len(_keys)} keys on cooldown. "
-              f"Waiting {wait:.0f}s for next available key…")
-        time.sleep(wait + 0.5)
+            if not _keys:
+                from config import GEMINI_API_KEY
+                return GEMINI_API_KEY
 
-    # Retry after sleep
-    return get_key()
+            now = time.time()
+
+            alive_keys = [
+                k for k in _keys
+                if k not in _dead
+            ]
+
+            if not alive_keys:
+                raise RuntimeError(
+                    "All Gemini API keys exhausted "
+                    "(daily quota exceeded)."
+                )
+
+            for offset in range(len(_keys)):
+
+                idx = (_current_idx + offset) % len(_keys)
+
+                key = _keys[idx]
+
+                if key in _dead:
+                    continue
+
+                if _blocked.get(key, 0) <= now:
+
+                    _current_idx = (idx + 1) % len(_keys)
+
+                    return key
+
+            blocked_alive = [
+                k for k in alive_keys
+                if k in _blocked
+            ]
+
+            if not blocked_alive:
+
+                raise RuntimeError(
+                    "No available Gemini API key."
+                )
+
+            earliest_key = min(
+                blocked_alive,
+                key=lambda k: _blocked[k]
+            )
+
+            wait = max(
+                0.0,
+                _blocked[earliest_key] - now
+            )
+
+        if wait > 0:
+
+            print(
+                f"  [KeyPool] All alive keys cooling down. "
+                f"Waiting {wait:.0f}s..."
+            )
+
+            time.sleep(wait + 0.5)
 
 
 def mark_blocked(key: str, retry_after: Optional[float] = None) -> None:
