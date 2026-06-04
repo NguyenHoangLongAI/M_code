@@ -88,7 +88,7 @@ def call_claude(
             resp = client.converse(modelId=model_id, **body)
 
             content = resp.get("output", {}).get("message", {}).get("content", [])
-            text    = "".join(b.get("text", "") for b in content if b.get("type") == "text")
+            text = "".join(b.get("text", "") for b in content if "text" in b)
 
             if not text:
                 raise RuntimeError(f"Response rỗng: {resp}")
@@ -136,13 +136,63 @@ def strip_json_fences(text: str) -> str:
     return text.strip()
 
 
+import re
+
+
+def _sanitize_json_string(raw: str) -> str:
+    """
+    Fix literal control characters inside JSON string values.
+    json.loads rejects actual \t, \n, \r inside strings — they must be \\t etc.
+    Strategy: scan character-by-character inside string literals and escape them.
+    Faster alternative: use a regex to replace control chars between quotes.
+    """
+
+    # Replace literal tab, CR inside what looks like a JSON string token.
+    # We do a two-pass approach:
+    #  1. Collapse all literal \r\n / \r / \n inside strings → \\n
+    #  2. Collapse literal \t inside strings → \\t
+    # This regex matches a JSON string span and replaces control chars inside it.
+    def fix_string(m):
+        s = m.group(0)
+        # s starts and ends with "
+        inner = s[1:-1]
+        # escape literal control chars that JSON forbids
+        inner = inner.replace('\r\n', '\\n')
+        inner = inner.replace('\r', '\\n')
+        inner = inner.replace('\n', '\\n')
+        inner = inner.replace('\t', '\\t')
+        return '"' + inner + '"'
+
+    # Match JSON string literals (handles \" escapes inside)
+    return re.sub(r'"(?:[^"\\]|\\.)*"', fix_string, raw, flags=re.DOTALL)
+
+
 def parse_json_response(raw: str):
     clean = strip_json_fences(raw)
+
+    # Try direct parse first (most responses are fine)
     try:
         return json.loads(clean)
-    except json.JSONDecodeError as exc:
-        m = re.search(r"(\[[\s\S]*\]|\{[\s\S]*\})", clean)
-        if m:
-            try: return json.loads(m.group(1))
-            except: pass
-        raise ValueError(f"Cannot parse JSON.\nError: {exc}\nRaw:\n{raw[:500]}")
+    except json.JSONDecodeError:
+        pass
+
+    # Sanitize control characters inside string literals, then retry
+    try:
+        sanitized = _sanitize_json_string(clean)
+        return json.loads(sanitized)
+    except json.JSONDecodeError:
+        pass
+
+    # Last resort: extract the outermost array/object
+    m = re.search(r'(\[[\s\S]*\]|\{[\s\S]*\})', clean)
+    if m:
+        try:
+            return json.loads(m.group(1))
+        except json.JSONDecodeError:
+            try:
+                sanitized = _sanitize_json_string(m.group(1))
+                return json.loads(sanitized)
+            except json.JSONDecodeError:
+                pass
+
+    raise ValueError(f"Cannot parse JSON.\nRaw:\n{raw[:500]}")
