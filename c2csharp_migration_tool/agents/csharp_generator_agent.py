@@ -110,7 +110,7 @@ def generate_csharp_file(
     )
     print(f"  [Agent4] Total prompt: ~{len(user_prompt)//4} tokens")
 
-    cs = call_claude(CSHARP_GEN_SYSTEM, user_prompt, max_tokens=65536)
+    cs = call_claude(CSHARP_GEN_SYSTEM, user_prompt, max_tokens=16000)
     cs = _strip_fences(cs)
     print(f"  [Agent4] Generated {len(cs)} chars.")
     return cs
