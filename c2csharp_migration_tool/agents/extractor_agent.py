@@ -10,7 +10,7 @@ from prompts.agent_prompts import EXTRACTOR_SYSTEM, EXTRACTOR_USER
 def extract_patterns(filename: str, source_code: str) -> list[dict]:
     print("  [Agent1] Extracting patterns (including comments) ...")
     user_prompt = EXTRACTOR_USER.format(filename=filename, source_code=source_code)
-    raw = call_claude(EXTRACTOR_SYSTEM, user_prompt, max_tokens=65536)
+    raw = call_claude(EXTRACTOR_SYSTEM, user_prompt, max_tokens=16000)
     try:
         patterns = parse_json_response(raw)
     except ValueError as exc:
