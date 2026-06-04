@@ -5,7 +5,7 @@ import json
 from utils.api_client import call_claude, parse_json_response
 from prompts.agent_prompts import CLASSIFIER_SYSTEM, CLASSIFIER_USER
 
-_BATCH_SIZE = 25
+_BATCH_SIZE = 50
 
 
 def classify_patterns(extracted: list[dict]) -> list[dict]:
