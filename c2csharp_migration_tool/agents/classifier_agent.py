@@ -20,7 +20,7 @@ def classify_patterns(extracted: list[dict]) -> list[dict]:
         )
         try:
             classified = parse_json_response(raw)
-        except ValueError as exc
+        except ValueError as exc:
             print(f"  [Agent2] WARNING batch {idx+1}: {exc}")
             classified = _fallback(batch)
         results.extend(_merge(batch, classified))
