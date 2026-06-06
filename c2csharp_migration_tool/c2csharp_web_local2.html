@@ -1,1 +1,1413 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>C → C# Migration Tool — AWS Bedrock</title>
+<style>
+:root {
+  --bg:#0d1117; --s1:#161b22; --s2:#1c2128; --s3:#21262d;
+  --bd:#30363d; --bd2:#3d444d;
+  --green:#3fb950; --blue:#58a6ff; --yellow:#d29922;
+  --red:#f85149; --orange:#f0883e; --purple:#bc8cff;
+  --teal:#39d1c5;
+  --text:#e6edf3; --dim:#8b949e; --dim2:#656d76;
+  --mono:'Cascadia Code','Fira Code',Consolas,monospace;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;display:flex;flex-direction:column}
+button{font-family:inherit;cursor:pointer;border-radius:6px;border:1px solid var(--bd);font-weight:600;transition:all .15s}
+button:disabled{opacity:.35;cursor:not-allowed}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--bd2);border-radius:3px}
 
+/* ── HEADER ── */
+.hdr{background:var(--s1);border-bottom:1px solid var(--bd);height:48px;padding:0 16px;display:flex;align-items:center;gap:10px;flex-shrink:0}
+.hdr-title{font-size:14px;font-weight:700}
+.hdr-title em{color:var(--blue);font-style:normal}
+.chip{font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;border:1px solid;white-space:nowrap}
+.chip-bedrock{color:var(--teal);border-color:rgba(57,209,197,.4);background:rgba(57,209,197,.1)}
+.chip-model{color:var(--purple);border-color:rgba(188,140,255,.4);background:rgba(188,140,255,.1)}
+.chip-ok{color:var(--green);border-color:rgba(63,185,80,.4);background:rgba(63,185,80,.1)}
+.chip-err{color:var(--red);border-color:rgba(248,81,73,.4);background:rgba(248,81,73,.1)}
+.chip-connecting{color:var(--blue);border-color:rgba(88,166,255,.4);background:rgba(88,166,255,.1)}
+.hdr-right{margin-left:auto;display:flex;align-items:center;gap:8px}
+.hdr-server-url{font-family:var(--mono);font-size:11px;color:var(--dim);background:var(--s3);border:1px solid var(--bd);border-radius:4px;padding:3px 8px;outline:none;width:175px;transition:border-color .15s}
+.hdr-server-url:focus{border-color:var(--blue)}
+.btn-sm{font-size:11px;padding:3px 10px;background:transparent;color:var(--text)}
+.btn-sm:hover{background:var(--s3)}
+
+/* ── LAYOUT ── */
+.body{display:flex;flex:1;overflow:hidden}
+
+/* ── SIDEBAR ── */
+.sidebar{width:240px;min-width:240px;background:var(--s1);border-right:1px solid var(--bd);display:flex;flex-direction:column;overflow:hidden}
+.sb-hdr{padding:8px 10px 4px;flex-shrink:0;display:flex;flex-direction:column;gap:6px;border-bottom:1px solid var(--bd)}
+.sb-hdr-top{display:flex;align-items:center;gap:6px}
+.sb-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--dim2);flex:1}
+.sb-sel-count{font-size:10px;color:var(--blue);font-weight:700}
+.sb-search{width:100%;background:var(--s2);border:1px solid var(--bd);border-radius:5px;color:var(--text);font-size:11px;padding:4px 8px;outline:none;transition:border-color .15s}
+.sb-search:focus{border-color:var(--blue)}
+.sb-search::placeholder{color:var(--dim2)}
+.file-tree{flex:1;overflow-y:auto;padding:4px 0}
+
+/* ── TREE NODES ── */
+.tree-dir{display:flex;align-items:center;gap:5px;padding:4px 8px;cursor:pointer;user-select:none;border-radius:5px;margin:0 4px 1px;transition:background .1s;position:relative}
+.tree-dir:hover{background:var(--s2)}
+.dir-toggle{font-size:9px;color:var(--dim2);width:12px;flex-shrink:0;transition:transform .15s;display:inline-block;text-align:center}
+.dir-toggle.open{transform:rotate(90deg)}
+.dir-icon{font-size:13px;flex-shrink:0}
+.dir-label{font-size:11.5px;font-weight:600;color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dir-badge{font-size:9px;color:var(--dim2);background:var(--s3);border-radius:8px;padding:1px 5px;white-space:nowrap;flex-shrink:0}
+.dir-badge.has-sel{color:var(--blue);background:rgba(88,166,255,.12)}
+.tree-children{overflow:hidden;transition:max-height .2s ease}
+.tree-children.collapsed{max-height:0!important}
+.tree-file{display:flex;align-items:center;gap:5px;padding:4px 8px 4px 0;cursor:pointer;border-radius:5px;margin:0 4px 1px;border:1px solid transparent;transition:background .1s;position:relative}
+.tree-file:hover{background:var(--s2)}
+.tree-file.active-view{background:rgba(88,166,255,.12);border-color:rgba(88,166,255,.35)}
+.tree-file .fi-cb{width:14px;height:14px;accent-color:var(--blue);cursor:pointer;flex-shrink:0;margin-left:8px}
+.tree-file .fi-icon{font-size:12px;flex-shrink:0}
+.tree-file .fi-name{font-size:11px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
+.tree-file .fi-badge{font-size:9px;padding:1px 4px;border-radius:8px;background:var(--s3);color:var(--dim);white-space:nowrap;flex-shrink:0}
+.tree-file .fi-badge.done{background:rgba(63,185,80,.15);color:var(--green)}
+.tree-file .fi-badge.busy{background:rgba(88,166,255,.15);color:var(--blue);animation:pulse 1s infinite}
+.tree-file .fi-badge.err{background:rgba(248,81,73,.15);color:var(--red)}
+
+.sb-actions{padding:7px 8px;border-top:1px solid var(--bd);display:flex;gap:5px;flex-shrink:0}
+.btn-sel-all{flex:1;font-size:10.5px;padding:4px 4px;background:transparent;color:var(--dim)}
+.btn-sel-all:hover{background:var(--s3);color:var(--text)}
+.btn-run-sel{flex:2;font-size:11px;padding:4px 8px;background:var(--blue);color:#0d1117;border-color:var(--blue)}
+.btn-run-sel:hover:not(:disabled){opacity:.85}
+.sb-cg-row{padding:5px 8px;border-top:1px solid var(--bd);flex-shrink:0}
+.btn-cg{width:100%;font-size:10.5px;padding:4px 8px;background:transparent;color:var(--purple);border-color:rgba(188,140,255,.4)}
+.btn-cg:hover:not(:disabled){background:rgba(188,140,255,.08)}
+.btn-cg.running{animation:pulse 1s infinite}
+.sb-bedrock-info{padding:7px 12px;border-top:1px solid var(--bd);flex-shrink:0;display:flex;flex-direction:column;gap:3px}
+.sb-bedrock-row{display:flex;align-items:center;justify-content:space-between;font-size:10px}
+.sb-bedrock-label{color:var(--dim2);text-transform:uppercase;letter-spacing:.4px}
+.sb-bedrock-val{color:var(--text);font-family:var(--mono);font-size:10px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sb-bedrock-val.ok{color:var(--green)}
+.sb-bedrock-val.err{color:var(--red)}
+
+/* ── WORKSPACE ── */
+.workspace{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+.tab-bar{background:var(--s1);border-bottom:1px solid var(--bd);display:flex;align-items:center;padding:0 8px;gap:2px;flex-shrink:0;overflow-x:auto;min-height:38px}
+.tab-bar::-webkit-scrollbar{height:3px}
+.view-tab{display:flex;align-items:center;gap:5px;padding:6px 12px;border-radius:6px 6px 0 0;font-size:11.5px;cursor:pointer;color:var(--dim);border:1px solid transparent;border-bottom:none;white-space:nowrap;transition:all .15s;flex-shrink:0}
+.view-tab:hover{color:var(--text);background:var(--s2)}
+.view-tab.active{color:var(--text);background:var(--bg);border-color:var(--bd)}
+.view-tab .tab-close{font-size:12px;color:var(--dim2);margin-left:2px;line-height:1;padding:1px 3px;border-radius:3px}
+.view-tab .tab-close:hover{color:var(--red);background:rgba(248,81,73,.15)}
+.view-tab .tab-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.dot-idle{background:var(--dim2)}.dot-run{background:var(--blue);animation:pulse 1s infinite}
+.dot-done{background:var(--green)}.dot-err{background:var(--red)}
+.tab-bar-empty{padding:0 14px;font-size:11.5px;color:var(--dim);display:flex;align-items:center}
+.view-panels{flex:1;overflow:hidden;position:relative}
+.view-panel{display:none;flex-direction:column;height:100%;overflow:hidden}
+.view-panel.active{display:flex}
+.welcome-panel{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:var(--dim)}
+.welcome-panel svg{opacity:.12}
+.welcome-title{font-size:14px;font-weight:700;color:var(--dim)}
+.welcome-sub{font-size:12px}
+
+/* ── FILE PANEL ── */
+.file-action-bar{background:var(--s2);border-bottom:1px solid var(--bd);padding:6px 12px;display:flex;align-items:center;gap:7px;flex-shrink:0}
+.btn-run-f{padding:4px 14px;font-size:12px;background:var(--blue);color:#0d1117;border-color:var(--blue)}
+.btn-run-f:hover:not(:disabled){opacity:.85}
+.btn-cancel-f{padding:4px 10px;font-size:12px;background:transparent;color:var(--red);border-color:var(--red);display:none}
+.btn-cancel-f:hover{background:rgba(248,81,73,.1)}
+.btn-clear-f{padding:4px 8px;font-size:11px;background:transparent;color:var(--dim)}
+.btn-clear-f:hover{color:var(--text);background:var(--s3)}
+.btn-dl{font-size:11px;padding:3px 8px;background:transparent;color:var(--green);border-color:var(--green)}
+.btn-dl:hover{background:rgba(63,185,80,.1)}
+.btn-dl.blue{color:var(--blue);border-color:var(--blue)}
+.btn-dl.blue:hover{background:rgba(88,166,255,.1)}
+.f-status{font-size:11px;color:var(--dim);margin-left:auto}
+.f-status.run{color:var(--blue)}.f-status.ok{color:var(--green)}.f-status.err{color:var(--red)}
+.f-pipeline{background:var(--s2);border-bottom:1px solid var(--bd);padding:4px 12px;display:flex;align-items:center;gap:3px;flex-shrink:0;overflow-x:auto}
+.ag{display:flex;align-items:center;gap:3px;padding:2px 8px;border-radius:12px;border:1px solid var(--bd);font-size:10px;white-space:nowrap;color:var(--dim);transition:all .2s}
+.ag .n{font-weight:700}
+.ag.run{border-color:var(--blue);color:var(--blue);background:rgba(88,166,255,.08)}
+.ag.run::before{content:'';display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--blue);margin-right:3px;animation:pulse 1s infinite}
+.ag.done{border-color:var(--green);color:var(--green);background:rgba(63,185,80,.08)}
+.ag.err{border-color:var(--red);color:var(--red);background:rgba(248,81,73,.08)}
+.ag-sep{color:var(--bd);font-size:11px}
+.f-elapsed{margin-left:auto;font-size:10px;color:var(--dim);font-family:var(--mono)}
+.top-section{flex:0 0 55%;display:flex;overflow:hidden;border-bottom:2px solid var(--bd2);min-height:0}
+.code-pane{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+.code-pane+.code-pane{border-left:2px solid var(--bd2)}
+.pane-bar{background:var(--s2);border-bottom:1px solid var(--bd);padding:4px 11px;display:flex;align-items:center;gap:6px;font-size:11px;flex-shrink:0;height:30px}
+.pb-label{font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.5px;padding:1px 6px;border-radius:4px;white-space:nowrap}
+.pb-c{background:rgba(240,136,62,.15);color:var(--orange);border:1px solid rgba(240,136,62,.3)}
+.pb-cs{background:rgba(88,166,255,.15);color:var(--blue);border:1px solid rgba(88,166,255,.3)}
+.pb-name{font-family:var(--mono);font-size:10.5px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+.pb-meta{font-size:10px;color:var(--dim2);white-space:nowrap}
+.pb-pin{font-size:10px;color:var(--dim)}
+.code-view{flex:1;overflow:auto;font-family:var(--mono);font-size:12px;line-height:1.65;background:var(--bg)}
+.code-lines{padding:6px 0;min-height:100%}
+.code-line{display:flex;min-height:1.65em}
+.code-line:hover{background:rgba(255,255,255,.02)}
+.line-num{width:44px;min-width:44px;text-align:right;padding:0 9px 0 5px;color:var(--dim2);font-size:10px;user-select:none;flex-shrink:0}
+.line-body{flex:1;padding-right:14px;white-space:pre;color:var(--text)}
+.code-view.cs .line-body{color:#c9d1d9}
+.code-line.hl-active .line-num{color:var(--blue)}
+.code-line.hl-active .line-body{background:rgba(88,166,255,.13);border-left:2px solid var(--blue);padding-left:2px}
+.code-line.hl-range .line-body{background:rgba(88,166,255,.06)}
+.resize-h{height:4px;background:var(--bd);cursor:row-resize;flex-shrink:0;transition:background .15s}
+.resize-h:hover,.resize-h.dragging{background:var(--blue)}
+.bottom-section{flex:1;display:flex;overflow:hidden;min-height:0}
+.tbl-area{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+.bottom-bar{background:var(--s2);border-bottom:1px solid var(--bd);padding:4px 11px;display:flex;align-items:center;gap:7px;flex-shrink:0;height:32px}
+.bb-title{font-size:10.5px;font-weight:700;color:var(--dim);text-transform:uppercase;letter-spacing:.5px}
+.badge{background:var(--s3);border-radius:10px;padding:1px 6px;font-size:10px}
+.badge.has{background:rgba(63,185,80,.2);color:var(--green)}
+.badge.warn{background:rgba(210,153,34,.2);color:var(--yellow)}
+.badge.dep{background:rgba(188,140,255,.15);color:var(--purple)}
+.badge.dep-pending{background:rgba(88,166,255,.1);color:var(--blue);animation:pulse 1.5s infinite}
+.log-overlay{display:none;flex-direction:column;overflow:hidden;flex:1}
+.log-overlay.visible{display:flex}
+.log-scroll{flex:1;overflow-y:auto;padding:7px 11px;font-family:var(--mono);font-size:11px}
+.log-line{line-height:1.8;display:flex;gap:6px}
+.log-ts{color:var(--dim2);font-size:10px;flex-shrink:0;padding-top:1px}
+.log-msg{flex:1;word-break:break-word}
+.l-step{color:var(--blue);font-weight:700}.l-ok{color:var(--green)}.l-warn{color:var(--yellow)}.l-err{color:var(--red)}.l-sub{color:var(--dim)}
+.tbl-wrap{flex:1;overflow:auto;display:none}
+.tbl-wrap.visible{display:block}
+table{width:100%;border-collapse:collapse;font-size:11px}
+thead th{background:var(--s2);color:var(--dim);font-weight:600;padding:5px 8px;border:1px solid var(--bd);position:sticky;top:0;z-index:2;white-space:nowrap;font-size:10px}
+tbody td{padding:4px 8px;border:1px solid var(--bd);vertical-align:top;cursor:default}
+tbody tr:hover td{background:rgba(88,166,255,.04)}
+tbody tr.row-selected td{background:rgba(88,166,255,.1)!important}
+tbody tr.row-selected td:first-child{border-left:2px solid var(--blue)}
+.c-src{font-family:var(--mono);font-size:10px;color:#79c0ff;white-space:pre;max-width:160px;overflow-x:auto;display:block}
+.c-cs{font-family:var(--mono);font-size:10px;color:#56d364;white-space:pre;max-width:160px;overflow-x:auto;display:block}
+.diff-e{color:var(--green)}.diff-m{color:var(--yellow)}.diff-h{color:var(--orange)}.diff-x{color:var(--red)}
+.risk-l{color:var(--green)}.risk-m{color:var(--yellow)}.risk-h{color:var(--orange)}.risk-x{color:var(--red)}
+.rev-yes{color:var(--yellow)}
+.rs-badge{display:inline-block;font-size:9px;font-weight:700;padding:1px 5px;border-radius:10px;border:1px solid;white-space:nowrap}
+.rs-ok{color:var(--green);border-color:rgba(63,185,80,.5);background:rgba(63,185,80,.1)}
+.rs-fix{color:var(--yellow);border-color:rgba(210,153,34,.5);background:rgba(210,153,34,.1)}
+.rs-reject{color:var(--red);border-color:rgba(248,81,73,.5);background:rgba(248,81,73,.1)}
+.rs-none{color:var(--dim);border-color:var(--bd);background:transparent}
+.dep-call{display:inline-block;font-family:var(--mono);font-size:9px;padding:1px 4px;border-radius:3px;margin:1px 2px 1px 0;cursor:pointer;border:1px solid;white-space:nowrap}
+.dep-stdlib{color:var(--dim);border-color:var(--bd);background:transparent}
+.dep-local{color:var(--blue);border-color:rgba(88,166,255,.4);background:rgba(88,166,255,.08)}
+.dep-extern{color:var(--orange);border-color:rgba(240,136,62,.4);background:rgba(240,136,62,.08)}
+.dep-unknown{color:var(--dim2);border-color:var(--bd2);background:transparent}
+.dep-caller{color:var(--purple);border-color:rgba(188,140,255,.4);background:rgba(188,140,255,.08)}
+
+/* Review panel */
+.review-panel{width:0;min-width:0;overflow:hidden;background:var(--s1);border-left:1px solid var(--bd);display:flex;flex-direction:column;transition:width .22s ease,min-width .22s ease;flex-shrink:0}
+.review-panel.open{width:300px;min-width:300px}
+.rp-hdr{padding:9px 13px 7px;border-bottom:1px solid var(--bd);flex-shrink:0;display:flex;align-items:center;gap:7px}
+.rp-title{font-size:12px;font-weight:700;flex:1}
+.rp-id{font-size:10px;color:var(--dim);font-family:var(--mono)}
+.rp-close{background:transparent;border:none;color:var(--dim);font-size:15px;padding:0 2px;line-height:1;cursor:pointer}
+.rp-close:hover{color:var(--text)}
+.rp-body{flex:1;overflow-y:auto;padding:10px 13px;display:flex;flex-direction:column;gap:10px}
+.rp-field{display:flex;flex-direction:column;gap:3px}
+.rp-label{font-size:10px;font-weight:600;color:var(--dim)}
+.rp-status-row{display:flex;gap:5px}
+.rp-status-btn{flex:1;padding:4px 3px;font-size:10.5px;font-weight:700;background:var(--s2);color:var(--dim);border:1px solid var(--bd);border-radius:6px;cursor:pointer;transition:all .15s;text-align:center}
+.rp-status-btn:hover{background:var(--s3);color:var(--text)}
+.rp-status-btn.sel-ok{background:rgba(63,185,80,.15);color:var(--green);border-color:rgba(63,185,80,.5)}
+.rp-status-btn.sel-fix{background:rgba(210,153,34,.15);color:var(--yellow);border-color:rgba(210,153,34,.5)}
+.rp-status-btn.sel-reject{background:rgba(248,81,73,.15);color:var(--red);border-color:rgba(248,81,73,.5)}
+.rp-textarea{width:100%;min-height:70px;resize:vertical;background:var(--s2);border:1px solid var(--bd);border-radius:6px;color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;font-size:11.5px;line-height:1.5;padding:7px 9px;outline:none;transition:border-color .15s}
+.rp-textarea:focus{border-color:var(--blue)}
+.rp-mono{font-family:var(--mono);font-size:10.5px}
+.rp-field-row{flex-direction:row;align-items:center;gap:8px}
+.rp-field-row .rp-label{min-width:72px;flex-shrink:0}
+.rp-select{flex:1;background:var(--s2);border:1px solid var(--bd);border-radius:6px;color:var(--text);font-size:11.5px;padding:4px 7px;outline:none;cursor:pointer;transition:border-color .15s}
+.rp-select:focus{border-color:var(--blue)}
+.rp-select option{background:var(--s2)}
+.rp-dep-section{background:var(--s2);border-radius:6px;border:1px solid var(--bd);padding:8px 10px;display:flex;flex-direction:column;gap:6px}
+.rp-dep-row{display:flex;flex-direction:column;gap:3px}
+.rp-dep-label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--dim2)}
+.rp-dep-chips{display:flex;flex-wrap:wrap;gap:3px}
+.rp-dep-empty{font-size:10px;color:var(--dim2);font-style:italic}
+.rp-dep-pending{font-size:10px;color:var(--blue);font-style:italic;animation:pulse 1.5s infinite}
+.rp-foot{padding:8px 13px;border-top:1px solid var(--bd);display:flex;gap:6px;flex-shrink:0}
+.rp-save{flex:1;padding:5px;font-size:11.5px;background:var(--blue);color:#0d1117;border-color:var(--blue)}
+.rp-save:hover{opacity:.85}
+.rp-nav{padding:5px 9px;font-size:11.5px;background:transparent;color:var(--dim)}
+.rp-nav:hover:not(:disabled){background:var(--s3);color:var(--text)}
+.empty-state{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--dim);font-size:12px}
+.empty-state svg{opacity:.15}
+
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+</style>
+</head>
+<body>
+
+<header class="hdr">
+  <span style="font-size:18px">⚙️</span>
+  <div class="hdr-title">C / Pro*C <em>→</em> C# Migration Tool</div>
+  <span class="chip chip-bedrock">☁ AWS Bedrock</span>
+  <span class="chip chip-model" id="modelChip">⬤ —</span>
+  <div class="hdr-right">
+    <span id="srvChip" class="chip chip-err">⬤ オフライン</span>
+    <input id="srvUrl" class="hdr-server-url" value="http://127.0.0.1:5005" spellcheck="false">
+    <button class="btn-sm" onclick="pingServer()">↺ 接続確認</button>
+  </div>
+</header>
+
+<div class="body">
+  <aside class="sidebar">
+    <div class="sb-hdr">
+      <div class="sb-hdr-top">
+        <span class="sb-title">📁 tests/</span>
+        <span class="sb-sel-count" id="selCount"></span>
+      </div>
+      <input class="sb-search" id="sbSearch" placeholder="ファイル検索…" oninput="onSearch(this.value)">
+    </div>
+    <div class="file-tree" id="fileTree">
+      <div style="padding:12px 8px;font-size:11px;color:var(--dim)">接続中…</div>
+    </div>
+    <div class="sb-actions">
+      <button class="btn-sel-all" onclick="toggleSelectAll()">全選択</button>
+      <button class="btn-run-sel" id="btnRunSel" onclick="runSelected()" disabled>▶ 選択実行</button>
+    </div>
+    <div class="sb-cg-row">
+      <button class="btn-cg" id="btnCallGraph" onclick="triggerCallGraph()" disabled>⇄ 依存関係分析</button>
+    </div>
+    <div class="sb-bedrock-info">
+      <div class="sb-bedrock-row">
+        <span class="sb-bedrock-label">Provider</span>
+        <span class="sb-bedrock-val" style="color:var(--teal)">AWS Bedrock</span>
+      </div>
+      <div class="sb-bedrock-row">
+        <span class="sb-bedrock-label">Region</span>
+        <span class="sb-bedrock-val" id="sbRegion">—</span>
+      </div>
+      <div class="sb-bedrock-row">
+        <span class="sb-bedrock-label">Status</span>
+        <span class="sb-bedrock-val" id="sbStatus">—</span>
+      </div>
+      <div class="sb-bedrock-row">
+        <span class="sb-bedrock-label">API Calls</span>
+        <span class="sb-bedrock-val" id="sbCalls">0</span>
+      </div>
+    </div>
+  </aside>
+
+  <div class="workspace">
+    <div class="tab-bar" id="tabBar">
+      <div class="tab-bar-empty" id="tabBarEmpty">← ファイルを選択して開く</div>
+    </div>
+    <div class="view-panels" id="viewPanels">
+      <div class="view-panel active" id="panel-welcome">
+        <div class="welcome-panel">
+          <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="16" y1="13" x2="8" y2="13"/>
+            <line x1="16" y1="17" x2="8" y2="17"/>
+          </svg>
+          <div class="welcome-title">C → C# Migration Tool</div>
+          <div class="welcome-sub">左のサイドバーからファイルを選択し、<b>選択実行</b>を押してください</div>
+          <div class="welcome-sub" style="color:var(--dim2);font-size:11px">複数ファイルを同時並列実行できます</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════ PER-FILE PANEL TEMPLATE ════ -->
+<template id="panelTpl">
+  <div class="view-panel" id="panel-__SID__">
+    <div class="file-action-bar">
+      <button class="btn-run-f" id="btnRun-__SID__" onclick="startOne('__PATH__')">▶ 実行</button>
+      <button class="btn-cancel-f" id="btnCancel-__SID__" onclick="cancelOne('__PATH__')">✕ キャンセル</button>
+      <button class="btn-clear-f" onclick="clearOne('__PATH__')">クリア</button>
+      <span class="f-status" id="fStatus-__SID__">準備完了</span>
+      <button class="btn-dl" id="btnDlCs-__SID__" onclick="dlCS('__PATH__')" style="display:none">⬇ .cs</button>
+      <button class="btn-dl blue" id="btnDlCsv-__SID__" onclick="dlCSV('__PATH__')" style="display:none">⬇ CSV</button>
+    </div>
+    <div class="f-pipeline">
+      <div class="ag" id="ag0-__SID__"><span class="n">0</span> 読込</div>
+      <span class="ag-sep">›</span>
+      <div class="ag" id="ag1-__SID__"><span class="n">1</span> 抽出</div>
+      <span class="ag-sep">›</span>
+      <div class="ag" id="ag2-__SID__"><span class="n">2</span> 分類</div>
+      <span class="ag-sep">›</span>
+      <div class="ag" id="ag3-__SID__"><span class="n">3</span> 変換</div>
+      <span class="ag-sep">›</span>
+      <div class="ag" id="ag4-__SID__"><span class="n">4</span> C#生成</div>
+      <span class="ag-sep">›</span>
+      <div class="ag" id="ag5-__SID__"><span class="n">5</span> CSV</div>
+      <span class="f-elapsed" id="fElapsed-__SID__"></span>
+    </div>
+    <div class="top-section" id="topSection-__SID__">
+      <div class="code-pane">
+        <div class="pane-bar">
+          <span class="pb-label pb-c">C / Pro*C</span>
+          <span class="pb-name" id="srcName-__SID__">__FNAME__</span>
+          <span class="pb-meta" id="srcMeta-__SID__"></span>
+          <span class="pb-pin" id="srcPin-__SID__"></span>
+        </div>
+        <div class="code-view" id="srcCode-__SID__">
+          <div class="code-lines" id="srcLines-__SID__">
+            <div style="padding:12px 14px;color:var(--dim)">読み込み中…</div>
+          </div>
+        </div>
+      </div>
+      <div class="code-pane">
+        <div class="pane-bar">
+          <span class="pb-label pb-cs">C# 出力</span>
+          <span class="pb-name" id="csFname-__SID__">—</span>
+          <span class="pb-meta" id="csMeta-__SID__"></span>
+          <span class="pb-pin" id="csPin-__SID__"></span>
+        </div>
+        <div class="code-view cs" id="csCode-__SID__">
+          <div class="code-lines" id="csLines-__SID__">
+            <div style="padding:12px 14px;color:var(--dim)">// C# の出力がここに表示されます</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="resize-h" id="resizeH-__SID__"></div>
+    <div class="bottom-section" id="bottomSection-__SID__">
+      <div class="tbl-area">
+        <div class="bottom-bar">
+          <span class="bb-title">📊 パターン分析</span>
+          <span class="badge" id="csvBadge-__SID__">0</span>
+          <span class="badge warn" id="reviewBadge-__SID__" style="display:none">0 件未レビュー</span>
+          <span class="badge dep" id="depBadge-__SID__" style="display:none">⇄ —</span>
+          <div style="margin-left:auto">
+            <button class="btn-dl" onclick="dlCSV('__PATH__')" style="font-size:10px;padding:2px 7px">⬇ CSV</button>
+          </div>
+        </div>
+        <div class="log-overlay visible" id="logOverlay-__SID__">
+          <div class="log-scroll" id="logScroll-__SID__">
+            <div class="empty-state" id="logEmpty-__SID__">
+              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+                <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
+              </svg>
+              <div>▶ 実行 ボタンを押して開始</div>
+            </div>
+          </div>
+        </div>
+        <div class="tbl-wrap" id="tblWrap-__SID__">
+          <table><thead><tr id="csvHead-__SID__"></tr></thead><tbody id="csvBody-__SID__"></tbody></table>
+        </div>
+      </div>
+      <div class="review-panel" id="reviewPanel-__SID__">
+        <div class="rp-hdr">
+          <div><div class="rp-title">📝 レビュー</div><div class="rp-id" id="rpId-__SID__">—</div></div>
+          <button class="rp-close" onclick="closeReview('__PATH__')">✕</button>
+        </div>
+        <div class="rp-body">
+          <div class="rp-field">
+            <div class="rp-label">レビューステータス</div>
+            <div class="rp-status-row">
+              <button class="rp-status-btn" id="rsOk-__SID__"     onclick="setStatusR('__PATH__','ok')">✓ 承認</button>
+              <button class="rp-status-btn" id="rsFix-__SID__"    onclick="setStatusR('__PATH__','fix')">△ 要修正</button>
+              <button class="rp-status-btn" id="rsReject-__SID__" onclick="setStatusR('__PATH__','reject')">✕ 却下</button>
+            </div>
+          </div>
+          <div class="rp-field"><div class="rp-label">概要</div><textarea class="rp-textarea" id="rp_summary-__SID__" rows="3"></textarea></div>
+          <div class="rp-field"><div class="rp-label">C#パターン</div><textarea class="rp-textarea rp-mono" id="rp_csharp-__SID__" rows="4"></textarea></div>
+          <div class="rp-field rp-field-row"><div class="rp-label">難易度</div>
+            <select class="rp-select" id="rp_difficulty-__SID__">
+              <option>易しい</option><option>普通</option><option>難しい</option><option>非常に難しい</option>
+            </select>
+          </div>
+          <div class="rp-field"><div class="rp-label">移行戦略</div><textarea class="rp-textarea" id="rp_strategy-__SID__" rows="2"></textarea></div>
+          <div class="rp-field rp-field-row"><div class="rp-label">リスクレベル</div>
+            <select class="rp-select" id="rp_risk_level-__SID__"><option>低</option><option>中</option><option>高</option><option>非常に高い</option></select>
+          </div>
+          <div class="rp-field rp-field-row"><div class="rp-label">リスク戦略</div>
+            <select class="rp-select" id="rp_risk_strategy-__SID__"><option>自動変換</option><option>コンテキスト依存</option><option>AI提案</option><option>手動対応</option></select>
+          </div>
+          <div class="rp-field rp-field-row"><div class="rp-label">C#普及度</div>
+            <select class="rp-select" id="rp_popularity-__SID__">
+              <option value="1">1/5</option><option value="2">2/5</option><option value="3" selected>3/5</option><option value="4">4/5</option><option value="5">5/5</option>
+            </select>
+          </div>
+          <div class="rp-dep-section" id="rpDep-__SID__" style="display:none">
+            <div class="rp-dep-row">
+              <div class="rp-dep-label">📎 File origin</div>
+              <div class="rp-dep-chips" id="rpDepFile-__SID__"></div>
+            </div>
+            <div class="rp-dep-row">
+              <div class="rp-dep-label">📤 Gọi đến (Callee)</div>
+              <div class="rp-dep-chips" id="rpDepCallees-__SID__"></div>
+            </div>
+            <div class="rp-dep-row">
+              <div class="rp-dep-label">📥 Được gọi bởi (Caller)</div>
+              <div class="rp-dep-chips" id="rpDepCallers-__SID__"></div>
+            </div>
+          </div>
+        </div>
+        <div class="rp-foot">
+          <button class="rp-nav" id="rpPrev-__SID__" onclick="navReview('__PATH__',-1)">◀ 前</button>
+          <button class="rp-save" onclick="saveReview('__PATH__')">保存</button>
+          <button class="rp-nav" id="rpNext-__SID__" onclick="navReview('__PATH__',+1)">次 ▶</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script>
+'use strict';
+
+/* ════ STATE ════ */
+const fileStates = {};
+const cache      = {};
+let activePanel  = 'welcome';
+const POLL_MS          = 30000;
+const CG_RETRY_DELAY_MS = 12000;
+const CG_RETRY_MAX      = 10;
+const dirOpen = {};
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const ts  = () => new Date().toLocaleTimeString('ja-JP',{hour12:false});
+function serverUrl(){ return ($('srvUrl').value||'http://127.0.0.1:5005').replace(/\/$/,''); }
+function safeId(path){ return path.replace(/[^a-zA-Z0-9_-]/g,'_'); }
+
+function getState(path){
+  if(!fileStates[path]) fileStates[path]={
+    srcLines:[], csLinesArr:[], patterns:[], csText:'',
+    reviews:{}, activeReviewId:null, sse:null, running:false, startTs:0,
+    hasDeps:false, depRetryTimer:null, depRetryCount:0,
+  };
+  return fileStates[path];
+}
+
+/* ════ SERVER ════ */
+async function pingServer(){
+  $('srvChip').textContent='⬤ 接続中…';
+  $('srvChip').className='chip chip-connecting';
+  try{
+    const r=await fetch(serverUrl()+'/health',{signal:AbortSignal.timeout(4000)});
+    const d=await r.json();
+    $('srvChip').textContent='⬤ オンライン';
+    $('srvChip').className='chip chip-ok';
+    const modelShort=(d.model||'').replace('au.anthropic.','').replace('anthropic.','').replace('-v1:0','');
+    $('modelChip').textContent='⬤ '+modelShort;
+    const pool=d.key_pool||{};
+    $('sbRegion').textContent=pool.region||d.region||'—';
+    $('sbStatus').textContent='オンライン'; $('sbStatus').className='sb-bedrock-val ok';
+    $('sbCalls').textContent=pool.total_calls??0;
+    await loadFileList();
+  }catch(_){
+    $('srvChip').textContent='⬤ オフライン'; $('srvChip').className='chip chip-err';
+    $('modelChip').textContent='⬤ —';
+    $('sbStatus').textContent='オフライン'; $('sbStatus').className='sb-bedrock-val err';
+    $('fileTree').innerHTML=`<div style="padding:10px 8px;font-size:11px;color:var(--dim);line-height:2">
+      ⚠ サーバー未起動<br><code style="color:var(--yellow);font-size:10.5px">python server.py</code></div>`;
+  }
+}
+
+let _flatFiles = [];
+
+async function loadFileList(){
+  const r=await fetch(serverUrl()+'/api/files');
+  const d=await r.json();
+  _flatFiles = d.flat || [];
+  renderTree(d.tree, d.flat || []);
+  $('btnCallGraph').disabled = _flatFiles.length === 0;
+}
+
+/* ════ TREE RENDERING ════ */
+function getFileIcon(ext){
+  if(ext==='.pc') return '🗃';
+  if(ext==='.h')  return '📋';
+  if(ext==='.pro') return '📦';
+  return '📄';
+}
+function getExtColor(ext){
+  if(ext==='.pc')  return 'color:var(--teal)';
+  if(ext==='.h')   return 'color:var(--purple)';
+  if(ext==='.pro') return 'color:var(--yellow)';
+  return '';
+}
+
+function renderTree(tree, flat){
+  const container = $('fileTree');
+  if(!tree || !tree.children || !tree.children.length){
+    container.innerHTML='<div style="padding:10px;font-size:11px;color:var(--dim)">tests/ にファイルなし</div>';
+    $('btnRunSel').disabled=true;
+    return;
+  }
+  container.innerHTML='';
+  renderTreeNode(tree, container, 0, '');
+  updateSelCount();
+}
+
+function renderTreeNode(node, parentEl, depth, parentPath){
+  if(node.type==='dir'){
+    if(depth===0 && node.path===''){
+      node.children.forEach(child => renderTreeNode(child, parentEl, depth, ''));
+      return;
+    }
+    renderDirNode(node, parentEl, depth, parentPath);
+  } else {
+    renderFileNode(node, parentEl, depth);
+  }
+}
+
+function renderDirNode(node, parentEl, depth, parentPath){
+  const dirPath = node.path;
+  if(dirOpen[dirPath] === undefined) dirOpen[dirPath] = true;
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'tree-dir-wrapper';
+
+  const row = document.createElement('div');
+  row.className = 'tree-dir';
+  row.id = 'dir-row-' + safeId(dirPath);
+  row.style.paddingLeft = (8 + depth * 14) + 'px';
+
+  const fileCount = countFiles(node);
+  const selCount  = countSelected(node);
+
+  row.innerHTML = `
+    <span class="dir-toggle ${dirOpen[dirPath]?'open':''}" id="dir-toggle-${safeId(dirPath)}">▶</span>
+    <span class="dir-icon">📁</span>
+    <span class="dir-label" title="${esc(dirPath)}">${esc(node.name)}</span>
+    <span class="dir-badge ${selCount>0?'has-sel':''}" id="dir-badge-${safeId(dirPath)}">${selCount>0?selCount+'/':' '}${fileCount}</span>`;
+
+  row.addEventListener('click', (e) => {
+    if(e.target.type==='checkbox') return;
+    toggleDir(dirPath);
+  });
+
+  wrapper.appendChild(row);
+
+  const children = document.createElement('div');
+  children.className = 'tree-children' + (dirOpen[dirPath]?'':' collapsed');
+  children.id = 'dir-children-' + safeId(dirPath);
+  if(dirOpen[dirPath]) children.style.maxHeight = '99999px';
+
+  node.children.forEach(child => renderTreeNode(child, children, depth+1, dirPath));
+  wrapper.appendChild(children);
+  parentEl.appendChild(wrapper);
+}
+
+function renderFileNode(node, parentEl, depth){
+  const path = node.path;
+  const sid  = safeId(path);
+  const st   = getState(path);
+  const c    = cache[path];
+
+  let badgeCls='', badgeTxt=node.ext.replace('.','').toUpperCase();
+  if(c){ badgeCls='done'; badgeTxt='✓'; }
+  else if(st.running){ badgeCls='busy'; badgeTxt='⟳'; }
+
+  const isHeader = node.ext === '.h';
+  const row = document.createElement('div');
+  row.className = 'tree-file';
+  row.id = 'fi-' + sid;
+  row.style.paddingLeft = (depth * 14) + 'px';
+  row.innerHTML = `
+    <input type="checkbox" class="fi-cb" id="cb-${sid}"
+      ${isHeader?'disabled title=".h ファイルは移行対象外"':''}
+      onchange="onCheckChange()" onclick="e=>e.stopPropagation()">
+    <span class="fi-icon" style="${getExtColor(node.ext)}">${getFileIcon(node.ext)}</span>
+    <span class="fi-name" title="${esc(path)}" style="${isHeader?'color:var(--dim)':''}">${esc(node.name)}</span>
+    <span class="fi-badge ${badgeCls}" id="fiBadge-${sid}">${badgeTxt}</span>`;
+
+  row.querySelector('.fi-name').addEventListener('click', () => openFileView(path));
+  row.querySelector('.fi-icon').addEventListener('click', () => openFileView(path));
+  parentEl.appendChild(row);
+}
+
+function toggleDir(dirPath){
+  dirOpen[dirPath] = !dirOpen[dirPath];
+  const toggle   = $('dir-toggle-' + safeId(dirPath));
+  const children = $('dir-children-' + safeId(dirPath));
+  if(!toggle || !children) return;
+  if(dirOpen[dirPath]){
+    toggle.classList.add('open');
+    children.classList.remove('collapsed');
+    children.style.maxHeight = '99999px';
+  } else {
+    toggle.classList.remove('open');
+    children.style.maxHeight = children.scrollHeight + 'px';
+    requestAnimationFrame(()=>{ children.classList.add('collapsed'); });
+  }
+}
+
+function countFiles(node){
+  if(node.type==='file') return 1;
+  return (node.children||[]).reduce((s,c)=>s+countFiles(c), 0);
+}
+function countSelected(node){
+  if(node.type==='file'){
+    const cb = $('cb-' + safeId(node.path));
+    return cb && cb.checked ? 1 : 0;
+  }
+  return (node.children||[]).reduce((s,c)=>s+countSelected(c), 0);
+}
+
+/* ════ SEARCH ════ */
+let _searchQuery = '';
+function onSearch(q){
+  _searchQuery = q.toLowerCase().trim();
+  const container = $('fileTree');
+  container.innerHTML = '';
+  _renderFilteredFlat(_searchQuery);
+}
+function _renderFilteredFlat(q){
+  const container = $('fileTree');
+  if(!q){ loadFileList(); return; }
+  const matches = _flatFiles.filter(f => f.name.toLowerCase().includes(q) || f.path.toLowerCase().includes(q));
+  if(!matches.length){
+    container.innerHTML='<div style="padding:10px;font-size:11px;color:var(--dim)">一致なし</div>';
+    return;
+  }
+  container.innerHTML='';
+  matches.forEach(f => {
+    const sid  = safeId(f.path);
+    const st   = getState(f.path);
+    const c    = cache[f.path];
+    let badgeCls='', badgeTxt=f.ext.replace('.','').toUpperCase();
+    if(c){ badgeCls='done'; badgeTxt='✓'; }
+    else if(st.running){ badgeCls='busy'; badgeTxt='⟳'; }
+    const isHeader = f.ext === '.h';
+    const row = document.createElement('div');
+    row.className = 'tree-file';
+    row.id = 'fi-' + sid;
+    row.style.paddingLeft = '8px';
+    row.innerHTML = `
+      <input type="checkbox" class="fi-cb" id="cb-${sid}" ${isHeader?'disabled':''} onchange="onCheckChange()" onclick="e=>e.stopPropagation()">
+      <span class="fi-icon" style="${getExtColor(f.ext)}">${getFileIcon(f.ext)}</span>
+      <span class="fi-name" title="${esc(f.path)}">${esc(f.path)}</span>
+      <span class="fi-badge ${badgeCls}" id="fiBadge-${sid}">${badgeTxt}</span>`;
+    row.querySelector('.fi-name').addEventListener('click', () => openFileView(f.path));
+    container.appendChild(row);
+  });
+}
+
+/* ════ CHECK / SELECT ════ */
+function onCheckChange(){
+  const checked = document.querySelectorAll('.fi-cb:not(:disabled):checked').length;
+  const total   = document.querySelectorAll('.fi-cb:not(:disabled)').length;
+  $('selCount').textContent = checked ? `${checked}/${total} 選択` : '';
+  $('btnRunSel').disabled   = checked === 0;
+  const btn = document.querySelector('.btn-sel-all');
+  if(btn) btn.textContent = checked===total && total>0 ? '全解除' : '全選択';
+  updateDirBadges();
+}
+function updateDirBadges(){
+  const seenDirs = new Set();
+  _flatFiles.forEach(f => {
+    const parts = f.path.split('/');
+    if(parts.length > 1) seenDirs.add(parts.slice(0,-1).join('/'));
+  });
+  seenDirs.forEach(dirPath => {
+    const badge = $('dir-badge-' + safeId(dirPath));
+    if(!badge) return;
+    const inDir  = _flatFiles.filter(f => f.path.startsWith(dirPath + '/'));
+    const selCnt = inDir.filter(f => { const cb=$('cb-'+safeId(f.path)); return cb&&cb.checked; }).length;
+    const total  = inDir.length;
+    badge.className = 'dir-badge' + (selCnt>0?' has-sel':'');
+    badge.textContent = selCnt>0 ? `${selCnt}/${total}` : String(total);
+  });
+}
+function updateSelCount(){ onCheckChange(); }
+function toggleSelectAll(){
+  const cbs = [...document.querySelectorAll('.fi-cb:not(:disabled)')];
+  const allChecked = cbs.every(c => c.checked);
+  cbs.forEach(c => c.checked = !allChecked);
+  onCheckChange();
+}
+
+/* ════ PANEL MANAGEMENT ════ */
+function openFileView(path){
+  const sid = safeId(path);
+  if(!$('panel-' + sid)){
+    createPanel(path);
+    loadSourceIntoPanel(path);
+    if(cache[path]) restoreCache(path);
+  }
+  switchToPanel(sid);
+  document.querySelectorAll('.tree-file').forEach(el => el.classList.remove('active-view'));
+  $('fi-' + sid)?.classList.add('active-view');
+}
+function switchToPanel(sid){
+  document.querySelectorAll('.view-panel').forEach(p => p.classList.remove('active'));
+  $('panel-' + sid)?.classList.add('active');
+  activePanel = sid;
+  document.querySelectorAll('.view-tab').forEach(t => t.classList.remove('active'));
+  $('tab-' + sid)?.classList.add('active');
+}
+function createPanel(path){
+  const sid   = safeId(path);
+  const fname = path.split('/').pop();
+  const tpl   = $('panelTpl');
+  const clone = tpl.content.cloneNode(true);
+  clone.querySelectorAll('[id]').forEach(el => { el.id = el.id.replace(/__SID__/g, sid); });
+  clone.querySelectorAll('[onclick]').forEach(el => {
+    const v = el.getAttribute('onclick')
+      .replace(/__PATH__/g, path.replace(/'/g,"\\'"))
+      .replace(/__SID__/g, sid);
+    el.setAttribute('onclick', v);
+  });
+  clone.querySelectorAll('[id^="srcName-"]').forEach(el => {
+    if(el.id === 'srcName-' + sid) el.textContent = fname;
+  });
+  const panel = clone.querySelector('.view-panel');
+  panel.id = 'panel-' + sid;
+  $('viewPanels').appendChild(clone);
+  createTab(path, sid, fname);
+  setupResize(sid);
+}
+function createTab(path, sid, fname){
+  $('tabBarEmpty')?.remove();
+  const tab = document.createElement('div');
+  tab.className = 'view-tab';
+  tab.id = 'tab-' + sid;
+  tab.onclick = () => switchToPanel(sid);
+  tab.innerHTML = `<span class="tab-dot dot-idle" id="tabDot-${sid}"></span>
+    <span title="${esc(path)}">${esc(fname)}</span>
+    <span class="tab-close" onclick="closePanel('${path.replace(/'/g,"\\'")}',event)">✕</span>`;
+  $('tabBar').appendChild(tab);
+}
+function closePanel(path, e){
+  e.stopPropagation();
+  const sid = safeId(path);
+  const st  = getState(path);
+  if(st.sse){ st.sse.close(); st.sse=null; }
+  if(st.depRetryTimer){ clearTimeout(st.depRetryTimer); st.depRetryTimer=null; }
+  $('panel-' + sid)?.remove();
+  $('tab-'   + sid)?.remove();
+  delete fileStates[path];
+  if(activePanel === sid){
+    const remaining = document.querySelectorAll('.view-tab');
+    if(remaining.length > 0) remaining[remaining.length-1].click();
+    else {
+      if(!$('panel-welcome')){
+        const wp = document.createElement('div');
+        wp.className='view-panel active'; wp.id='panel-welcome';
+        wp.innerHTML=`<div class="welcome-panel"><div class="welcome-title">ファイルを選択してください</div></div>`;
+        $('viewPanels').appendChild(wp);
+      } else { switchToPanel('welcome'); }
+      $('tabBar').innerHTML='<div class="tab-bar-empty" id="tabBarEmpty">← ファイルを選択して開く</div>';
+      activePanel='welcome';
+    }
+  }
+}
+async function loadSourceIntoPanel(path){
+  const sid = safeId(path);
+  try{
+    const r = await fetch(`${serverUrl()}/api/file?name=${encodeURIComponent(path)}`);
+    const d = await r.json();
+    if(d.error) throw new Error(d.error);
+    const st = getState(path);
+    st.srcLines = d.content.split('\n');
+    renderCodeLines('srcLines-' + sid, st.srcLines);
+    $('srcMeta-' + sid).textContent = `${st.srcLines.length}行 · ${(d.size/1024).toFixed(1)}KB`;
+  }catch(e){
+    const el = $('srcLines-' + sid);
+    if(el) el.innerHTML = `<div style="padding:12px;color:var(--red)">エラー: ${esc(e.message)}</div>`;
+  }
+}
+
+/* ════ RUN SELECTED ════ */
+function runSelected(){
+  const checked = [...document.querySelectorAll('.fi-cb:not(:disabled):checked')];
+  if(!checked.length) return;
+  checked.forEach(cb => {
+    const row  = cb.closest('.tree-file');
+    if(!row) return;
+    const name = row.querySelector('.fi-name')?.getAttribute('title') ||
+                 row.querySelector('.fi-name')?.textContent;
+    if(name){ openFileView(name); startOne(name); }
+  });
+}
+
+/* ════ PIPELINE ════ */
+function startOne(path){
+  const sid = safeId(path);
+  const st  = getState(path);
+  if(st.running) return;
+  st.running=true; st.startTs=Date.now(); st.reviews={};
+  st.hasDeps=false; st.depRetryCount=0;
+  if(st.depRetryTimer){ clearTimeout(st.depRetryTimer); st.depRetryTimer=null; }
+  setTabDot(sid,'run'); setBadge(path,'busy','⟳');
+  $('btnRun-'+sid).disabled=true;
+  $('btnCancel-'+sid).style.display='inline-block';
+  $('fElapsed-'+sid).textContent='';
+  setFStatus(sid,'実行中…','run');
+  showLog(sid);
+  for(let i=0;i<=5;i++) agSet(i,sid,'');
+  const csEl=$('csLines-'+sid);
+  if(csEl) csEl.innerHTML='<div style="padding:12px 14px;color:var(--dim)">// 生成中…</div>';
+  addLog(sid,`▶ 開始: ${path}`,'l-step');
+  if(st.sse){ st.sse.close(); }
+  const url=`${serverUrl()}/api/migrate?name=${encodeURIComponent(path)}`;
+  const sse=new EventSource(url);
+  st.sse=sse;
+  // ── Mỗi SSE connection nhận event từ queue riêng của file đó (server v5.3) ──
+  sse.onmessage=ev=>{
+    let event; try{event=JSON.parse(ev.data);}catch(_){addLog(sid,'⚠ '+ev.data,'l-warn');return;}
+    handleEvent(path,event);
+  };
+  sse.onerror=()=>{
+    if(!st.running) return;
+    addLog(sid,'❌ SSE 接続が切断されました','l-err');
+    setFStatus(sid,'接続エラー','err');
+    finishOne(path,false);
+  };
+}
+function cancelOne(path){
+  const sid=safeId(path); const st=getState(path);
+  if(st.sse){ st.sse.close(); st.sse=null; }
+  addLog(sid,'⚠ キャンセルされました','l-warn');
+  setFStatus(sid,'キャンセル');
+  finishOne(path,false);
+}
+function handleEvent(path, ev){
+  const sid=safeId(path); const st=getState(path);
+  switch(ev.type){
+    case 'step':
+      agsDone(sid,ev.step);
+      addLog(sid,`▶ ステップ ${ev.step}/5 — ${ev.label}`,'l-step');
+      setFStatus(sid,`Step ${ev.step}/5: ${ev.label}`,'run');
+      break;
+    case 'log':{
+      const m=ev.msg||'';
+      if(!/\[Agent\d\]|WARNING|ERROR|✓|Batch \d|patterns|Generated|Written|Chunk|Extracted|Done|Translat|Classif|Saved/.test(m)) break;
+      const cls=ev.level==='error'?'l-err':ev.level==='warn'?'l-warn':m.startsWith('  [Agent')?'l-sub':'';
+      addLog(sid,m,cls); break;
+    }
+    case 'done':{
+      st.sse.close(); st.sse=null;
+      st.patterns=ev.patterns||[];
+      for(let i=0;i<=5;i++) agSet(i,sid,'done');
+      const fname = path.split('/').pop();
+      fetch(`${serverUrl()}/api/output?name=${encodeURIComponent(path)}`)
+        .then(r=>r.text()).then(cs=>{
+          st.csText=cs; st.csLinesArr=cs.split('\n');
+          renderCodeLines('csLines-'+sid,st.csLinesArr);
+          const csName=fname.replace(/\.(c|pc|h)$/i,'_migrated.cs');
+          $('csFname-'+sid).textContent=csName;
+          $('csMeta-'+sid).textContent=cs.length.toLocaleString()+' 文字';
+          $('btnDlCs-'+sid).style.display='inline-block';
+          $('btnDlCsv-'+sid).style.display='inline-block';
+          renderCSV(path,st.patterns);
+          $('csvBadge-'+sid).textContent=st.patterns.length;
+          $('csvBadge-'+sid).className='badge has';
+          cache[path]={patterns:st.patterns,cs:cs};
+          const elapsed=((Date.now()-st.startTs)/1000).toFixed(1);
+          $('fElapsed-'+sid).textContent=`✓ ${elapsed}s`;
+          addLog(sid,`✅ 完了 — ${st.patterns.length} パターン · ${elapsed}s`,'l-ok');
+          setFStatus(sid,`✓ ${st.patterns.length} パターン · ${elapsed}s`,'ok');
+          setBadge(path,'done','✓'); setTabDot(sid,'done');
+          refreshReviewBadge(path); finishOne(path,true); showTable(sid);
+          loadFileList(); pingServer();
+          setDepBadgePending(sid);
+          loadDependencies(path,0);
+        }).catch(e=>{
+          addLog(sid,`⚠ .cs 取得エラー: ${e.message}`,'l-warn');
+          renderCSV(path,st.patterns); finishOne(path,true); showTable(sid);
+        });
+      break;
+    }
+    case 'error':{
+      st.sse.close(); st.sse=null;
+      addLog(sid,`❌ ${ev.msg}`,'l-err');
+      if(ev.trace) addLog(sid,ev.trace.split('\n').slice(-3).join(' '),'l-err');
+      setFStatus(sid,'パイプラインエラー','err');
+      setBadge(path,'err','✗'); setTabDot(sid,'err');
+      finishOne(path,false); break;
+    }
+  }
+}
+function finishOne(path,ok){
+  const sid=safeId(path); const st=getState(path);
+  st.running=false; st.sse=null;
+  $('btnRun-'+sid).disabled=false;
+  $('btnCancel-'+sid).style.display='none';
+  if(!ok && !($('fiBadge-'+safeId(path))?.classList.contains('done'))) setTabDot(sid,'err');
+}
+function restoreCache(path){
+  const sid=safeId(path); const c=cache[path]; if(!c) return;
+  const st=getState(path);
+  const fname=path.split('/').pop();
+  st.patterns=c.patterns; st.csText=c.cs; st.csLinesArr=c.cs.split('\n');
+  renderCodeLines('csLines-'+sid,st.csLinesArr);
+  renderCSV(path,st.patterns);
+  $('csFname-'+sid).textContent=fname.replace(/\.(c|pc|h)$/i,'_migrated.cs');
+  $('csMeta-'+sid).textContent=c.cs.length.toLocaleString()+' 文字';
+  $('csvBadge-'+sid).textContent=st.patterns.length;
+  $('csvBadge-'+sid).className='badge has';
+  $('btnDlCs-'+sid).style.display='inline-block';
+  $('btnDlCsv-'+sid).style.display='inline-block';
+  for(let i=0;i<=5;i++) agSet(i,sid,'done');
+  setFStatus(sid,`キャッシュ済み — ${st.patterns.length} パターン`,'ok');
+  setTabDot(sid,'done'); setBadge(path,'done','✓');
+  refreshReviewBadge(path); showTable(sid);
+  const ext = fname.split('.').pop().toLowerCase();
+  if(ext !== 'h') loadDependencies(path,0);
+}
+function clearOne(path){
+  const sid=safeId(path); const st=getState(path);
+  if(st.sse){ st.sse.close(); st.sse=null; }
+  if(st.depRetryTimer){ clearTimeout(st.depRetryTimer); st.depRetryTimer=null; }
+  st.patterns=[]; st.csText=''; st.csLinesArr=[]; st.reviews={};
+  st.hasDeps=false; st.depRetryCount=0;
+  closeReview(path);
+  $('logScroll-'+sid).innerHTML=`<div class="empty-state" id="logEmpty-${sid}">
+    <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+      <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
+    </svg><div>▶ 実行 ボタンを押して開始</div></div>`;
+  showLog(sid);
+  $('csvBadge-'+sid).textContent='0'; $('csvBadge-'+sid).className='badge';
+  $('reviewBadge-'+sid).style.display='none'; $('depBadge-'+sid).style.display='none';
+  const csEl=$('csLines-'+sid);
+  if(csEl) csEl.innerHTML='<div style="padding:12px 14px;color:var(--dim)">// C# の出力がここに表示されます</div>';
+  $('csFname-'+sid).textContent='—'; $('csMeta-'+sid).textContent='';
+  $('btnDlCs-'+sid).style.display='none'; $('btnDlCsv-'+sid).style.display='none';
+  $('fElapsed-'+sid).textContent='';
+  for(let i=0;i<=5;i++) agSet(i,sid,'');
+  setFStatus(sid,'準備完了'); setTabDot(sid,'idle'); setBadge(path,'','?');
+  delete cache[path];
+}
+
+/* ════ CALL GRAPH ════ */
+function triggerCallGraph(){
+  const btn=$('btnCallGraph');
+  if(btn.classList.contains('running')) return;
+  btn.classList.add('running'); btn.textContent='⇄ 分析中…'; btn.disabled=true;
+  const url=serverUrl()+'/api/call-graph';
+  const sse=new EventSource(url+'?t='+Date.now());
+  sse.onmessage=ev=>{
+    let event; try{event=JSON.parse(ev.data);}catch(_){return;}
+    if(event.type==='log') console.log('[CallGraph]', event.msg);
+    if(event.type==='done'){
+      sse.close();
+      btn.classList.remove('running'); btn.textContent='⇄ 依存関係分析'; btn.disabled=false;
+      Object.keys(fileStates).forEach(p=>loadDependencies(p,0));
+    }
+    if(event.type==='error'){
+      sse.close();
+      btn.classList.remove('running'); btn.textContent='⇄ 依存関係分析'; btn.disabled=false;
+    }
+  };
+  sse.onerror=()=>{
+    sse.close();
+    btn.classList.remove('running'); btn.textContent='⇄ 依存関係分析'; btn.disabled=false;
+  };
+}
+async function loadDependencies(path, retryCount){
+  const sid=safeId(path); const st=getState(path);
+  if(path.endsWith('.h')) return;
+  if(retryCount===0 && st.depRetryTimer){ clearTimeout(st.depRetryTimer); st.depRetryTimer=null; }
+  try{
+    const r=await fetch(`${serverUrl()}/api/call-graph/file?name=${encodeURIComponent(path)}`);
+    if(r.status===202){
+      if(retryCount<CG_RETRY_MAX){
+        setDepBadgePending(sid);
+        st.depRetryCount=retryCount+1;
+        st.depRetryTimer=setTimeout(()=>loadDependencies(path,retryCount+1),CG_RETRY_DELAY_MS);
+      } else { const b=$('depBadge-'+sid); if(b) b.style.display='none'; }
+      return;
+    }
+    if(!r.ok) return;
+    const d=await r.json(); if(d.error) return;
+    if(st.depRetryTimer){ clearTimeout(st.depRetryTimer); st.depRetryTimer=null; }
+    st.hasDeps=true; st.depRetryCount=0;
+    const depMap={}; d.patterns.forEach(p=>depMap[p.id]=p);
+    st.patterns=st.patterns.map(p=>({...p,...(depMap[p.id]||{})}));
+    const badge=$('depBadge-'+sid);
+    if(badge){ badge.style.display='inline-block'; badge.className='badge dep'; badge.textContent=`⇄ ${d.summary.total_callees+d.summary.total_callers} deps`; }
+    renderCSV(path,st.patterns);
+    if(st.activeReviewId!=null) renderReviewDeps(path,st.activeReviewId);
+  }catch(e){ console.debug('[CallGraph] loadDependencies error:',e.message); }
+}
+function setDepBadgePending(sid){
+  const badge=$('depBadge-'+sid); if(!badge) return;
+  badge.style.display='inline-block'; badge.className='badge dep-pending'; badge.textContent='⇄ 分析中…';
+}
+function renderReviewDeps(path, patternId){
+  const sid=safeId(path); const st=getState(path);
+  const p=st.patterns.find(x=>x.id===patternId); if(!p) return;
+  const section=$('rpDep-'+sid); if(!section) return;
+  const callees=p.callees||[], callers=p.callers||[], srcFile=p.source_file||'';
+  if(!st.hasDeps && st.depRetryCount>0){
+    section.style.display='flex';
+    // ── FIX: optional chaining không thể dùng ở phía trái phép gán ──
+    ['rpDepFile-'+sid,'rpDepCallees-'+sid,'rpDepCallers-'+sid].forEach(elId=>{
+      const el = document.getElementById(elId);
+      if(el) el.innerHTML='<span class="rp-dep-pending">⟳ 分析中…</span>';
+    });
+    return;
+  }
+  if(!callees.length && !callers.length && !srcFile){ section.style.display='none'; return; }
+  section.style.display='flex';
+  const fc=$('rpDepFile-'+sid);
+  if(fc) fc.innerHTML=srcFile?`<span class="dep-call dep-local">${esc(srcFile)}</span>`:'<span class="rp-dep-empty">—</span>';
+  const ce=$('rpDepCallees-'+sid);
+  if(ce) ce.innerHTML=!callees.length?'<span class="rp-dep-empty">なし</span>':callees.map(c=>{
+    const tip=c.file?`${c.file}:L${c.line||'?'}`:(c.kind==='stdlib'?'stdlib':'extern');
+    return `<span class="dep-call dep-${c.kind||'unknown'}" title="${esc(tip)}" onclick="jumpToDepFile('${esc(c.file||'')}',${c.line||0})">${esc(c.name)}</span>`;
+  }).join('');
+  const re=$('rpDepCallers-'+sid);
+  if(re) re.innerHTML=!callers.length?'<span class="rp-dep-empty">なし</span>':callers.map(c=>{
+    const label=c.caller_func?`${c.caller_func} (${c.file}:L${c.line})`:`${c.file}:L${c.line}`;
+    return `<span class="dep-call dep-caller" title="${esc(label)}" onclick="jumpToDepFile('${esc(c.file||'')}',${c.line||0})">${esc(c.caller_func||c.file)}</span>`;
+  }).join('');
+}
+function jumpToDepFile(file,line){
+  if(!file) return;
+  const match = _flatFiles.find(f=>f.name===file || f.path===file);
+  const fullPath = match ? match.path : file;
+  openFileView(fullPath);
+  if(line>0){
+    const sid=safeId(fullPath);
+    setTimeout(()=>highlightLines('srcLines-'+sid,line,line),300);
+  }
+}
+
+/* ════ UI HELPERS ════ */
+function agSet(idx,sid,state){ const el=$(`ag${idx}-${sid}`); if(!el)return; el.classList.remove('run','done','err'); if(state)el.classList.add(state); }
+function agsDone(sid,upTo){ for(let i=0;i<=5;i++) agSet(i,sid,i<upTo?'done':i===upTo?'run':''); }
+function setTabDot(sid,state){ const el=$('tabDot-'+sid); if(!el)return; el.className='tab-dot dot-'+state; }
+function setBadge(path,cls,txt){
+  const sid=safeId(path); const el=$('fiBadge-'+sid); if(!el)return;
+  el.className='fi-badge'+(cls?' '+cls:''); el.textContent=txt;
+}
+function setFStatus(sid,msg,cls=''){
+  const el=$('fStatus-'+sid); if(!el)return;
+  el.textContent=msg; el.className='f-status'+(cls?' '+cls:'');
+}
+function addLog(sid,msg,cls=''){
+  const wrap=$('logScroll-'+sid); if(!wrap)return;
+  $('logEmpty-'+sid)?.remove();
+  const line=document.createElement('div');
+  line.className='log-line';
+  line.innerHTML=`<span class="log-ts">${ts()}</span><span class="log-msg ${cls}">${esc(msg)}</span>`;
+  wrap.appendChild(line); wrap.scrollTop=wrap.scrollHeight;
+}
+function showTable(sid){ $('logOverlay-'+sid)?.classList.remove('visible'); $('tblWrap-'+sid)?.classList.add('visible'); }
+function showLog(sid)  { $('tblWrap-'+sid)?.classList.remove('visible');   $('logOverlay-'+sid)?.classList.add('visible'); }
+
+/* ════ CODE VIEW ════ */
+function renderCodeLines(containerId,linesArr){
+  const container=$(containerId); if(!container)return;
+  container.innerHTML='';
+  linesArr.forEach((text,i)=>{
+    const row=document.createElement('div');
+    row.className='code-line'; row.dataset.line=i+1;
+    row.innerHTML=`<span class="line-num">${i+1}</span><span class="line-body">${esc(text)}</span>`;
+    container.appendChild(row);
+  });
+}
+function highlightLines(containerId,startLine,endLine,scroll=true){
+  const container=$(containerId); if(!container)return;
+  container.querySelectorAll('.code-line').forEach(row=>{
+    row.classList.remove('hl-active','hl-range');
+    const ln=+row.dataset.line;
+    if(ln===startLine) row.classList.add('hl-active');
+    else if(ln>startLine&&ln<=endLine) row.classList.add('hl-range');
+  });
+  if(scroll){
+    const first=container.querySelector(`.code-line[data-line="${startLine}"]`);
+    if(first){
+      const view=container.parentElement;
+      const lineH=first.getBoundingClientRect().height||20;
+      view.scrollTo({top:Math.max(0,(startLine-1)*lineH-view.clientHeight*.3),behavior:'smooth'});
+    }
+  }
+}
+function clearHighlights(containerId){ $(containerId)?.querySelectorAll('.code-line').forEach(r=>r.classList.remove('hl-active','hl-range')); }
+function findSnippetLines(snippet,linesArr){
+  if(!snippet||!linesArr.length) return null;
+  const snippetLines=snippet.split('\n');
+  const anchor=snippetLines.find(l=>{const t=l.trim();return t.length>3&&!/^[{}()\s*\/]+$/.test(t);})||snippetLines.find(l=>l.trim())||'';
+  if(!anchor.trim()) return null;
+  const at=anchor.trim();
+  for(let i=0;i<linesArr.length;i++) if(linesArr[i].includes(at)) return[i+1,i+snippetLines.length];
+  return null;
+}
+function findSrcLines(path,pattern){
+  const st=getState(path);
+  const[sl,el]=pattern.line_range||[0,0];
+  if(sl>0&&el>=sl&&st.srcLines.length>0){
+    const snippet=(pattern.source_snippet||'').trim();
+    const fw=snippet.split(/\W+/).find(w=>w.length>2)||'';
+    const rt=st.srcLines.slice(sl-1,el).join('\n');
+    if(!fw||rt.includes(fw)) return[sl,el];
+  }
+  return findSnippetLines(pattern.source_snippet||'',st.srcLines);
+}
+function findCsLines(path,pattern){ return findSnippetLines(pattern.csharp_snippet||'',getState(path).csLinesArr); }
+
+/* ════ ROW CLICK ════ */
+function onRowClick(path,patternId){
+  const sid=safeId(path); const st=getState(path);
+  const p=st.patterns.find(x=>x.id===patternId); if(!p)return;
+  document.querySelectorAll(`#csvBody-${sid} tr`).forEach(tr=>tr.classList.toggle('row-selected',+tr.dataset.pid===patternId));
+  const sr=findSrcLines(path,p);
+  if(sr){highlightLines('srcLines-'+sid,sr[0],sr[1]);$('srcPin-'+sid).textContent=`L${sr[0]}–${sr[1]}`;}
+  else{clearHighlights('srcLines-'+sid);$('srcPin-'+sid).textContent='';}
+  const cr=findCsLines(path,p);
+  if(cr){highlightLines('csLines-'+sid,cr[0],cr[1]);$('csPin-'+sid).textContent=`L${cr[0]}–${cr[1]}`;}
+  else{clearHighlights('csLines-'+sid);$('csPin-'+sid).textContent='';}
+  openReview(path,patternId);
+}
+
+/* ════ REVIEW ════ */
+function openReview(path,patternId){
+  const sid=safeId(path); const st=getState(path);
+  const p=st.patterns.find(x=>x.id===patternId); if(!p)return;
+  st.activeReviewId=patternId;
+  $('rpId-'+sid).textContent=`#${p.id} — ${p.raw_type||p.pattern_type||''}`;
+  const rv=st.reviews[patternId]||{}; const ed=rv.edits||{};
+  setStatusR(path,rv.status||null,false);
+  $('rp_summary-'+sid).value=ed.summary_vi??(p.summary_vi||'');
+  $('rp_csharp-'+sid).value=ed.csharp_snippet??(p.csharp_snippet||'');
+  $('rp_strategy-'+sid).value=ed.migration_strategy??(p.migration_strategy||'');
+  setSel('rp_difficulty-'+sid,ed.difficulty??p.difficulty??'普通');
+  setSel('rp_risk_level-'+sid,ed.risk_level??p.risk_level??'中');
+  setSel('rp_risk_strategy-'+sid,ed.risk_strategy??p.risk_strategy??'AI提案');
+  $('rp_popularity-'+sid).value=String(ed.csharp_popularity??p.csharp_popularity??3);
+  const idx=st.patterns.findIndex(x=>x.id===patternId);
+  $('rpPrev-'+sid).disabled=idx<=0; $('rpNext-'+sid).disabled=idx>=st.patterns.length-1;
+  $('reviewPanel-'+sid).classList.add('open');
+  renderReviewDeps(path,patternId);
+}
+function setSel(id,val){ const s=$(id); if(!s)return; for(const o of s.options) if(o.value===String(val)){o.selected=true;return;} if(s.options.length) s.options[0].selected=true; }
+function closeReview(path){
+  const sid=safeId(path); const st=getState(path);
+  $('reviewPanel-'+sid)?.classList.remove('open');
+  st.activeReviewId=null;
+  clearHighlights('srcLines-'+sid); clearHighlights('csLines-'+sid);
+  if($('srcPin-'+sid)) $('srcPin-'+sid).textContent='';
+  if($('csPin-'+sid))  $('csPin-'+sid).textContent='';
+  document.querySelectorAll(`#csvBody-${sid} tr`).forEach(tr=>tr.classList.remove('row-selected'));
+}
+function setStatusR(path,status,updateUI=true){
+  const sid=safeId(path); const st=getState(path);
+  ['rsOk','rsFix','rsReject'].forEach(id=>$(`${id}-${sid}`)?.classList.remove('sel-ok','sel-fix','sel-reject'));
+  if(status==='ok')     $(`rsOk-${sid}`)?.classList.add('sel-ok');
+  if(status==='fix')    $(`rsFix-${sid}`)?.classList.add('sel-fix');
+  if(status==='reject') $(`rsReject-${sid}`)?.classList.add('sel-reject');
+  if(updateUI&&st.activeReviewId!=null){
+    if(!st.reviews[st.activeReviewId]) st.reviews[st.activeReviewId]={status:null,edits:{}};
+    st.reviews[st.activeReviewId].status=status;
+    refreshReviewBadge(path); updateRowReviewBadge(path,st.activeReviewId);
+  }
+}
+function saveReview(path){
+  const sid=safeId(path); const st=getState(path);
+  if(st.activeReviewId==null)return;
+  let status=null;
+  if($(`rsOk-${sid}`)?.classList.contains('sel-ok'))         status='ok';
+  else if($(`rsFix-${sid}`)?.classList.contains('sel-fix'))  status='fix';
+  else if($(`rsReject-${sid}`)?.classList.contains('sel-reject')) status='reject';
+  const edits={
+    summary_vi:$(`rp_summary-${sid}`).value.trim(),
+    csharp_snippet:$(`rp_csharp-${sid}`).value.trim(),
+    difficulty:$(`rp_difficulty-${sid}`).value,
+    migration_strategy:$(`rp_strategy-${sid}`).value.trim(),
+    risk_level:$(`rp_risk_level-${sid}`).value,
+    risk_strategy:$(`rp_risk_strategy-${sid}`).value,
+    csharp_popularity:parseInt($(`rp_popularity-${sid}`).value,10),
+  };
+  st.reviews[st.activeReviewId]={status,edits};
+  const p=st.patterns.find(x=>x.id===st.activeReviewId);
+  if(p) Object.assign(p,edits);
+  refreshReviewBadge(path); updateRowReviewBadge(path,st.activeReviewId); updateTableRow(path,st.activeReviewId);
+  const btn=$('reviewPanel-'+sid)?.querySelector('.rp-save');
+  if(btn){ btn.textContent='✓ 保存済み'; setTimeout(()=>btn.textContent='保存',1200); }
+}
+function navReview(path,dir){
+  saveReview(path);
+  const st=getState(path);
+  const idx=st.patterns.findIndex(x=>x.id===st.activeReviewId);
+  const next=st.patterns[idx+dir];
+  if(next) onRowClick(path,next.id);
+}
+function refreshReviewBadge(path){
+  const sid=safeId(path); const st=getState(path);
+  const pending=st.patterns.filter(p=>!st.reviews[p.id]?.status).length;
+  const badge=$('reviewBadge-'+sid); if(!badge)return;
+  if(!st.patterns.length){badge.style.display='none';return;}
+  badge.style.display='inline-block';
+  badge.textContent=`${pending} 件未レビュー`;
+  badge.className=pending===0?'badge has':'badge warn';
+}
+function updateRowReviewBadge(path,patternId){
+  const sid=safeId(path);
+  const tr=document.querySelector(`#csvBody-${sid} tr[data-pid="${patternId}"]`);
+  if(!tr)return;
+  const cell=tr.querySelector('.rv-cell'); if(!cell)return;
+  cell.innerHTML=reviewBadgeHtml(path,patternId);
+}
+function reviewBadgeHtml(path,patternId){
+  const rv=getState(path).reviews[patternId];
+  if(!rv?.status) return '<span class="rs-badge rs-none">未</span>';
+  if(rv.status==='ok')     return '<span class="rs-badge rs-ok">✓ 承認</span>';
+  if(rv.status==='fix')    return '<span class="rs-badge rs-fix">△ 修正</span>';
+  if(rv.status==='reject') return '<span class="rs-badge rs-reject">✕ 却下</span>';
+  return '';
+}
+function updateTableRow(path,patternId){
+  const sid=safeId(path);
+  const tr=document.querySelector(`#csvBody-${sid} tr[data-pid="${patternId}"]`); if(!tr)return;
+  const p=getState(path).patterns.find(x=>x.id===patternId); if(!p)return;
+  const tds=tr.querySelectorAll('td:not(.rv-cell)');
+  COLS.filter(c=>c.k!=='_review').forEach((col,i)=>{
+    const td=tds[i]; if(!td)return;
+    let v=p[col.k];
+    if(col.k==='_callees'||col.k==='_callers'){td.innerHTML=renderDepCell(p,col.k);return;}
+    if(Array.isArray(v)) v=v.join('; ');
+    else if(col.k==='csharp_popularity') v=v!=null?`${v}/5`:'—';
+    else if(col.k==='needs_review') v=v?'⚠':'';
+    else v=v??'';
+    td.textContent=v;
+    let cls=col.cls;
+    if(col.k==='difficulty') cls+=' '+diffCls(String(v));
+    if(col.k==='risk_level') cls+=' '+riskCls(String(v));
+    if(col.k==='needs_review'&&v) cls+=' rev-yes';
+    td.className=cls.trim();
+  });
+}
+
+/* ════ DEP CELL ════ */
+function renderDepCell(p,key){
+  if(key==='_callees'){
+    const callees=(p.callees||[]).filter(c=>c.kind!=='stdlib');
+    if(!callees.length) return '<span style="color:var(--dim2);font-size:9px">—</span>';
+    return callees.slice(0,4).map(c=>{
+      const tip=c.file?`${c.file}:L${c.line||'?'}`:c.kind;
+      return `<span class="dep-call dep-${c.kind||'unknown'}" title="${esc(tip)}">${esc(c.name)}</span>`;
+    }).join('')+(callees.length>4?`<span style="color:var(--dim2);font-size:9px"> +${callees.length-4}</span>`:'');
+  }
+  if(key==='_callers'){
+    const callers=p.callers||[];
+    if(!callers.length) return '<span style="color:var(--dim2);font-size:9px">—</span>';
+    return callers.slice(0,3).map(c=>{
+      const label=c.caller_func||c.file;
+      return `<span class="dep-call dep-caller" title="${esc(c.file+':L'+(c.line||'?'))}">${esc(label)}</span>`;
+    }).join('')+(callers.length>3?`<span style="color:var(--dim2);font-size:9px"> +${callers.length-3}</span>`:'');
+  }
+  return '';
+}
+
+/* ════ CSV TABLE ════ */
+const COLS=[
+  {k:'id',h:'番号',cls:''},{k:'source_snippet',h:'C/Pro*C',cls:'c-src'},
+  {k:'raw_type',h:'種別',cls:''},{k:'pattern_type',h:'タイプ',cls:''},
+  {k:'sub_types',h:'サブ',cls:''},{k:'summary_vi',h:'概要',cls:''},
+  {k:'csharp_snippet',h:'C#パターン',cls:'c-cs'},
+  {k:'difficulty',h:'難易度',cls:''},{k:'migration_strategy',h:'移行戦略',cls:''},
+  {k:'risk_level',h:'リスク',cls:''},{k:'risk_strategy',h:'リスク戦略',cls:''},
+  {k:'csharp_popularity',h:'普及度',cls:''},{k:'needs_review',h:'確認',cls:''},
+  {k:'_callees',h:'📤 Callee',cls:'dep-col'},{k:'_callers',h:'📥 Caller',cls:'dep-col'},
+  {k:'_review',h:'レビュー',cls:'rv-cell'},
+];
+function diffCls(v){if(v==='易しい')return'diff-e';if(v==='普通')return'diff-m';if(v==='難しい')return'diff-h';if(v==='非常に難しい')return'diff-x';return'';}
+function riskCls(v){if(v==='低')return'risk-l';if(v==='中')return'risk-m';if(v==='高')return'risk-h';if(v==='非常に高い')return'risk-x';return'';}
+
+function renderCSV(path,data){
+  const sid=safeId(path);
+  const head=$('csvHead-'+sid),body=$('csvBody-'+sid); if(!head||!body)return;
+  head.innerHTML=''; body.innerHTML='';
+  COLS.forEach(c=>{
+    const th=document.createElement('th'); th.textContent=c.h;
+    if(c.k==='_review') th.style.cssText='position:sticky;right:0;background:var(--s2);z-index:3;';
+    head.appendChild(th);
+  });
+  data.forEach(p=>{
+    const tr=document.createElement('tr');
+    tr.dataset.pid=p.id; tr.style.cursor='pointer';
+    tr.onclick=()=>onRowClick(path,p.id);
+    COLS.forEach(col=>{
+      const td=document.createElement('td');
+      if(col.k==='_review'){
+        td.className='rv-cell'; td.style.cssText='position:sticky;right:0;background:var(--s2);';
+        td.innerHTML=reviewBadgeHtml(path,p.id); tr.appendChild(td); return;
+      }
+      if(col.k==='_callees'||col.k==='_callers'){
+        td.className=col.cls; td.innerHTML=renderDepCell(p,col.k); tr.appendChild(td); return;
+      }
+      let v=p[col.k];
+      if(Array.isArray(v)) v=v.join('; ');
+      else if(col.k==='csharp_popularity') v=v!=null?`${v}/5`:'—';
+      else if(col.k==='needs_review') v=v?'⚠':'';
+      else v=v??'';
+      td.textContent=v;
+      let cls=col.cls;
+      if(col.k==='difficulty') cls+=' '+diffCls(String(v));
+      if(col.k==='risk_level') cls+=' '+riskCls(String(v));
+      if(col.k==='needs_review'&&v) cls+=' rev-yes';
+      td.className=cls.trim(); tr.appendChild(td);
+    });
+    body.appendChild(tr);
+  });
+}
+
+/* ════ DOWNLOAD ════ */
+function dlCS(path){
+  const st=getState(path); if(!st.csText)return;
+  const fname=path.split('/').pop().replace(/\.(c|pc|h)$/i,'_migrated.cs');
+  _dl(st.csText,fname,'text/plain');
+}
+function dlCSV(path){
+  const st=getState(path); if(!st.patterns.length)return;
+  const e2=v=>'"'+String(v).replace(/"/g,'""')+'"';
+  const statusMap={ok:'承認',fix:'要修正',reject:'却下'};
+  const exportCols=[...COLS.filter(c=>c.k!=='_review'&&c.k!=='_callees'&&c.k!=='_callers'),
+    {k:'_callees_str',h:'Callees'},{k:'_callers_str',h:'Callers'},{k:'_rv_status',h:'レビューステータス'}];
+  const hdr=exportCols.map(c=>e2(c.h)).join(',');
+  const rows=st.patterns.map(p=>{
+    const rv=st.reviews[p.id]||{};
+    return exportCols.map(col=>{
+      if(col.k==='_rv_status') return e2(statusMap[rv.status]||'未レビュー');
+      if(col.k==='_callees_str') return e2((p.callees||[]).filter(c=>c.kind!=='stdlib').map(c=>`${c.name}(${c.file||c.kind})`).join('; '));
+      if(col.k==='_callers_str') return e2((p.callers||[]).map(c=>`${c.caller_func||'?'}@${c.file}:${c.line}`).join('; '));
+      let v=p[col.k];
+      if(Array.isArray(v)) v=v.join('; ');
+      else if(col.k==='csharp_popularity') v=v!=null?`${v}/5`:'';
+      else if(col.k==='needs_review') v=v?'要確認':'';
+      else v=v??'';
+      return e2(v);
+    }).join(',');
+  });
+  const fname=path.split('/').pop().replace(/\.(c|pc|h)$/i,'_patterns.csv');
+  _dl('\uFEFF'+[hdr,...rows].join('\n'),fname,'text/csv');
+}
+function _dl(content,filename,mime){
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([content],{type:mime}));
+  a.download=filename; a.click();
+}
+
+/* ════ RESIZE ════ */
+function setupResize(sid){
+  const handle=$('resizeH-'+sid), topSec=$('topSection-'+sid);
+  if(!handle||!topSec)return;
+  const workspace=topSec.closest('.view-panel');
+  let dragging=false,startY=0,startH=0;
+  handle.addEventListener('mousedown',e=>{
+    dragging=true; startY=e.clientY; startH=topSec.getBoundingClientRect().height;
+    handle.classList.add('dragging'); document.body.style.userSelect='none'; document.body.style.cursor='row-resize';
+  });
+  document.addEventListener('mousemove',e=>{
+    if(!dragging)return;
+    const wsH=workspace.getBoundingClientRect().height;
+    const newH=Math.max(100,Math.min(wsH-100,startH+(e.clientY-startY)));
+    topSec.style.flex=`0 0 ${(newH/wsH*100).toFixed(1)}%`;
+  });
+  document.addEventListener('mouseup',()=>{
+    if(!dragging)return;
+    dragging=false; handle.classList.remove('dragging');
+    document.body.style.userSelect=''; document.body.style.cursor='';
+  });
+}
+
+/* ── Init ── */
+pingServer();
+setInterval(pingServer, POLL_MS);
+</script>
+</body>
+</html>
