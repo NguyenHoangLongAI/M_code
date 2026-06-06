@@ -1,27 +1,10 @@
 """
-server.py — C→C# Migration Local Server  v4
-============================================
-Endpoints
-─────────
-GET  /health                   → server + model status, file count
-GET  /api/files                → list .c/.pc/.h files in tests/
-GET  /api/file?name=X.c        → read raw file content
-GET  /api/migrate?name=X.c     → run full pipeline, stream SSE progress
-GET  /api/output?name=X.c      → return generated .cs file text
-GET  /api/output/csv?name=X.c  → return generated _patterns.csv text
-
-SSE event schema  (data: <JSON>)
-─────────────────────────────────
-  {"type":"step",  "step":0..5, "label":"..."}          → agent started
-  {"type":"log",   "level":"info|warn|error", "msg":"..."} → log line
-  {"type":"done",  "patterns":[...], "elapsed":N.N}     → pipeline finished
-  {"type":"error", "msg":"...", "trace":"..."}           → fatal error
-
-Usage
-─────
-    pip install google-genai flask flask-cors
-    export GEMINI_API_KEY=AIza...
-    python server.py
+server.py — C→C# Migration Local Server  v5.3
+==============================================
+Changes vs v5.2:
+  - Fix parallel migration log mixing: dùng thread-local queue thay vì
+    hook builtins.print globally. Mỗi pipeline thread có queue riêng,
+    log được route đúng file, không bị lộn xộn khi chạy song song.
 """
 
 import os
@@ -44,32 +27,20 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 BASE_DIR  = Path(__file__).parent
 TESTS_DIR = BASE_DIR / "tests"
 
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-GEMINI_MODEL   = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+# ── Thread-local storage for per-pipeline log routing ─────────
+_thread_local = threading.local()
 
 # ── Key pool init ─────────────────────────────────────────────
 def _init_keys():
-    """Load keys from keys.py (pool), fall back to env GEMINI_API_KEY."""
     from utils.key_pool import init_pool
-    try:
-        from keys import GEMINI_KEYS
-        keys = [k for k in GEMINI_KEYS if k.strip()]
-    except ImportError:
-        keys = []
-
-    # Also add env key if set and not already in list
-    if GEMINI_API_KEY and GEMINI_API_KEY not in keys:
-        keys.append(GEMINI_API_KEY)
-
-    if not keys:
-        print("ERROR: No Gemini API keys found.")
-        print("  Option 1: Add keys to keys.py  (GEMINI_KEYS list)")
-        print("  Option 2: export GEMINI_API_KEY=AIza...")
-        sys.exit(1)
-
-    init_pool(keys)
+    init_pool()
 
 _init_keys()
+
+# ── Call graph global state ────────────────────────────────────
+_call_graph_cache:   dict[str, list[dict]] = {}
+_call_graph_pending: set[str]              = set()
+_call_graph_lock     = threading.Lock()
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -77,13 +48,21 @@ _init_keys()
 # ══════════════════════════════════════════════════════════════════
 
 def _sse(event: dict) -> str:
-    """Encode a dict as a single SSE data line."""
     return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
 
 def _safe_name(name: str) -> str:
-    """Strip path components — only allow bare filename."""
-    return Path(name).name
+    """
+    Allow relative paths within tests/ (e.g. "subdir/File.c").
+    Prevents path traversal outside tests/.
+    """
+    clean    = Path(name).as_posix().lstrip("/")
+    resolved = (TESTS_DIR / clean).resolve()
+    try:
+        resolved.relative_to(TESTS_DIR.resolve())
+    except ValueError:
+        raise ValueError(f"Path traversal attempt: {name}")
+    return clean
 
 
 def _read_file(fpath: Path) -> str:
@@ -96,66 +75,237 @@ def _read_file(fpath: Path) -> str:
 
 
 # ══════════════════════════════════════════════════════════════════
+# THREAD-LOCAL LOG ROUTER
+# ══════════════════════════════════════════════════════════════════
+
+def _set_thread_queue(q: queue.Queue) -> None:
+    """Gắn queue vào thread hiện tại."""
+    _thread_local.log_queue = q
+
+
+def _clear_thread_queue() -> None:
+    """Xoá queue khỏi thread hiện tại."""
+    _thread_local.log_queue = None
+
+
+def _get_thread_queue() -> "queue.Queue | None":
+    """Lấy queue của thread hiện tại (None nếu chưa set)."""
+    return getattr(_thread_local, "log_queue", None)
+
+
+def _thread_print(*args, **kwargs) -> None:
+    """
+    Hàm print thay thế: ghi vào queue của thread hiện tại.
+    Vẫn in ra stdout bình thường.
+    Nếu thread không có queue (e.g. call-graph thread) → chỉ in stdout.
+    """
+    import builtins as _b
+    _b._orig_print(*args, **kwargs)   # type: ignore[attr-defined]
+
+    thread_q = _get_thread_queue()
+    if thread_q is None:
+        return
+
+    msg = " ".join(str(a) for a in args)
+
+    for marker, (step_num, step_label) in _STEP_MARKERS.items():
+        if marker in msg:
+            thread_q.put({"type": "step", "step": step_num, "label": step_label})
+            break
+
+    level = ("error" if "ERROR" in msg or "error" in msg.lower()
+             else "warn"  if "WARNING" in msg or "warn" in msg.lower()
+             else "info")
+    thread_q.put({"type": "log", "level": level, "msg": msg.strip()})
+
+
+# Patch builtins.print một lần duy nhất khi server khởi động
+# (không patch/unpatch lại trong mỗi thread → tránh race condition)
+builtins._orig_print = builtins.print   # type: ignore[attr-defined]
+builtins.print = _thread_print          # type: ignore[attr-defined]
+
+
+# ══════════════════════════════════════════════════════════════════
+# DIRECTORY TREE BUILDER
+# ══════════════════════════════════════════════════════════════════
+
+_SOURCE_EXTS = {".c", ".pc", ".pro", ".h"}
+
+def _count_lines(fpath: Path) -> int:
+    try:
+        count = 0
+        with fpath.open(encoding="utf-8", errors="replace") as f:
+            for _ in f:
+                count += 1
+        return count
+    except Exception:
+        return 0
+
+
+def _build_tree(directory: Path, relative_to: Path) -> dict:
+    """
+    Recursively build a tree node for `directory`.
+    Only includes files with extensions in _SOURCE_EXTS.
+    Empty directories (no source files anywhere) are omitted.
+    """
+    children = []
+
+    try:
+        entries = sorted(directory.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
+    except PermissionError:
+        return None
+
+    for entry in entries:
+        if entry.name.startswith(".") or entry.name == "__pycache__":
+            continue
+
+        rel_path = entry.relative_to(relative_to).as_posix()
+
+        if entry.is_dir():
+            subtree = _build_tree(entry, relative_to)
+            if subtree is not None:
+                children.append(subtree)
+
+        elif entry.is_file() and entry.suffix.lower() in _SOURCE_EXTS:
+            stat = entry.stat()
+            children.append({
+                "type":  "file",
+                "name":  entry.name,
+                "path":  rel_path,
+                "size":  stat.st_size,
+                "lines": _count_lines(entry),
+                "ext":   entry.suffix.lower(),
+            })
+
+    if not children:
+        return None
+
+    return {
+        "type":     "dir",
+        "name":     directory.name,
+        "path":     directory.relative_to(relative_to).as_posix() if directory != relative_to else "",
+        "children": children,
+    }
+
+
+def _flatten_tree(node: dict, result: list = None) -> list:
+    """Flatten a tree into a list of file nodes only."""
+    if result is None:
+        result = []
+    if node["type"] == "file":
+        result.append(node)
+    else:
+        for child in node.get("children", []):
+            _flatten_tree(child, result)
+    return result
+
+
+# ══════════════════════════════════════════════════════════════════
+# AUTO CALL GRAPH
+# ══════════════════════════════════════════════════════════════════
+
+def _run_auto_callgraph(filename: str, patterns: list[dict]) -> None:
+    from config import OUTPUT_DIR
+
+    safe = Path(filename).name
+
+    with _call_graph_lock:
+        if safe in _call_graph_pending:
+            return
+        _call_graph_pending.add(safe)
+
+    # Call-graph thread không set thread_q → print chỉ ra stdout
+    builtins._orig_print(f"[AutoCallGraph] Starting background analysis for {safe} ...")  # type: ignore
+    try:
+        from utils.call_graph import analyze_dependencies
+
+        all_file_patterns: dict[str, list[dict]] = {safe: patterns}
+        enriched = analyze_dependencies(all_file_patterns, TESTS_DIR)
+
+        with _call_graph_lock:
+            _call_graph_cache.update(enriched)
+
+        for fname, pats in enriched.items():
+            stem     = Path(fname).stem
+            out_path = Path(OUTPUT_DIR) / f"_debug_callgraph_{stem}.json"
+            out_path.write_text(
+                json.dumps(pats, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            builtins._orig_print(f"[AutoCallGraph] Saved → {out_path.name}")  # type: ignore
+
+    except Exception as exc:
+        builtins._orig_print(f"[AutoCallGraph] WARNING for {safe}: {exc}")  # type: ignore
+        traceback.print_exc()
+    finally:
+        with _call_graph_lock:
+            _call_graph_pending.discard(safe)
+
+    builtins._orig_print(f"[AutoCallGraph] Done for {safe}.")  # type: ignore
+
+
+# ══════════════════════════════════════════════════════════════════
 # STATIC FILE ENDPOINTS
 # ══════════════════════════════════════════════════════════════════
 
 @app.route("/health")
 def health():
-    files = sorted(
-        list(TESTS_DIR.glob("*.c")) +
-        list(TESTS_DIR.glob("*.pc")) +
-        list(TESTS_DIR.glob("*.pro"))
-    )
+    tree = _build_tree(TESTS_DIR, TESTS_DIR)
+    flat = _flatten_tree(tree) if tree else []
     from utils.key_pool import status as pool_status
+    from config import BEDROCK_MODEL_ID
     return jsonify({
         "status":     "ok",
-        "model":      GEMINI_MODEL,
+        "model":      BEDROCK_MODEL_ID,
         "tests_dir":  str(TESTS_DIR),
-        "file_count": len(files),
+        "file_count": len(flat),
         "key_pool":   pool_status(),
     })
 
 
 @app.route("/api/files")
 def list_files():
-    exts  = ("*.c", "*.pc", "*.pro", "*.h")
-    files = []
-    for ext in exts:
-        for p in sorted(TESTS_DIR.glob(ext)):
-            stat = p.stat()
-            files.append({
-                "name":  p.name,
-                "size":  stat.st_size,
-                "lines": sum(1 for _ in p.open(encoding="utf-8", errors="replace")),
-                "ext":   p.suffix,
-            })
-    return jsonify({"files": files, "dir": str(TESTS_DIR)})
+    tree = _build_tree(TESTS_DIR, TESTS_DIR)
+    if tree is None:
+        tree = {"type": "dir", "name": "tests", "path": "", "children": []}
+
+    flat = _flatten_tree(tree)
+
+    return jsonify({
+        "tree": tree,
+        "flat": flat,
+        "dir":  str(TESTS_DIR),
+    })
 
 
 @app.route("/api/file")
 def read_file_ep():
-    name  = request.args.get("name", "").strip()
+    name = request.args.get("name", "").strip()
     if not name:
         return jsonify({"error": "Missing ?name="}), 400
-    fpath = TESTS_DIR / _safe_name(name)
+    try:
+        rel = _safe_name(name)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    fpath = TESTS_DIR / rel
     if not fpath.exists():
         return jsonify({"error": f"Not found: {name}"}), 404
     try:
         content = _read_file(fpath)
-        return jsonify({"name": fpath.name, "content": content,
-                        "size": fpath.stat().st_size})
+        return jsonify({"name": fpath.name, "path": rel,
+                        "content": content, "size": fpath.stat().st_size})
     except ValueError as e:
         return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/output")
 def get_output_cs():
-    """Return the generated .cs file for a given source name."""
     name = request.args.get("name", "").strip()
     if not name:
         return jsonify({"error": "Missing ?name="}), 400
     from config import OUTPUT_DIR, CSHARP_FILE_SUFFIX
-    stem  = Path(_safe_name(name)).stem
+    stem  = Path(name).stem
     fpath = Path(OUTPUT_DIR) / f"{stem}{CSHARP_FILE_SUFFIX}"
     if not fpath.exists():
         return jsonify({"error": f"Output not found: {fpath.name}"}), 404
@@ -164,12 +314,11 @@ def get_output_cs():
 
 @app.route("/api/output/csv")
 def get_output_csv():
-    """Return the generated _patterns.csv for a given source name."""
     name = request.args.get("name", "").strip()
     if not name:
         return jsonify({"error": "Missing ?name="}), 400
     from config import OUTPUT_DIR
-    stem  = Path(_safe_name(name)).stem
+    stem  = Path(name).stem
     fpath = Path(OUTPUT_DIR) / f"{stem}_patterns.csv"
     if not fpath.exists():
         return jsonify({"error": f"CSV not found: {fpath.name}"}), 404
@@ -180,8 +329,6 @@ def get_output_csv():
 # /api/migrate  — SSE pipeline streaming
 # ══════════════════════════════════════════════════════════════════
 
-# Map of print-line keywords → (step_number, step_label)
-# Used to auto-detect which pipeline step is running from print() output.
 _STEP_MARKERS = {
     "[Step 0]": (0, "Reading source file"),
     "[Step 1]": (1, "Pattern Extraction"),
@@ -194,53 +341,40 @@ _STEP_MARKERS = {
 
 @app.route("/api/migrate")
 def migrate():
-    """
-    Run the full Python pipeline for a file in tests/.
-    Streams Server-Sent Events until done or error.
-    """
     name = request.args.get("name", "").strip()
     if not name:
         return jsonify({"error": "Missing ?name="}), 400
 
-    fpath = TESTS_DIR / _safe_name(name)
+    try:
+        rel = _safe_name(name)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    fpath = TESTS_DIR / rel
     if not fpath.exists():
         return jsonify({"error": f"File not found: {name}"}), 404
 
-    # Each request gets its own queue
     q: "queue.Queue[dict]" = queue.Queue()
 
-    # ── Pipeline thread ────────────────────────────────────────
     def run():
-        # ── Intercept print() to push SSE log events ──────────
-        _orig_print = builtins.print
-
-        def _hook(*args, **kwargs):
-            msg = " ".join(str(a) for a in args)
-            _orig_print(*args, **kwargs)   # keep terminal output
-
-            # Detect step markers first
-            for marker, (step_num, step_label) in _STEP_MARKERS.items():
-                if marker in msg:
-                    q.put({"type": "step", "step": step_num, "label": step_label})
-                    break
-
-            # Always also emit as log line (filtered on client)
-            level = ("error" if "ERROR" in msg or "error" in msg.lower()
-                     else "warn"  if "WARNING" in msg or "warn" in msg.lower()
-                     else "info")
-            q.put({"type": "log", "level": level, "msg": msg.strip()})
-
-        builtins.print = _hook
-
+        # ── Gắn queue riêng vào thread này ────────────────────
+        _set_thread_queue(q)
         try:
             from pipeline import run_pipeline
-            t0     = time.time()
-            result = run_pipeline(str(fpath))
+            t0      = time.time()
+            result  = run_pipeline(str(fpath))
             elapsed = round(time.time() - t0, 1)
+
+            safe_fname = Path(rel).name
+            threading.Thread(
+                target=_run_auto_callgraph,
+                args=(safe_fname, result["patterns"]),
+                daemon=True,
+            ).start()
 
             q.put({
                 "type":     "done",
-                "patterns": result["patterns"],   # full migration_data list
+                "patterns": result["patterns"],
                 "elapsed":  elapsed,
                 "cs_path":  result["cs_path"],
                 "csv_path": result["csv_path"],
@@ -253,22 +387,19 @@ def migrate():
                 "trace": traceback.format_exc(),
             })
         finally:
-            builtins.print = _orig_print   # always restore
+            # ── Xoá queue → thread này không nhận log nữa ─────
+            _clear_thread_queue()
 
-    t = threading.Thread(target=run, daemon=True)
-    t.start()
+    threading.Thread(target=run, daemon=True).start()
 
-    # ── SSE generator ──────────────────────────────────────────
     def stream():
         while True:
             try:
-                event = q.get(timeout=180)   # 3-min hard cap per event
+                event = q.get(timeout=180)
             except queue.Empty:
-                yield _sse({"type": "error", "msg": "Pipeline timeout (180 s)"})
+                yield _sse({"type": "error", "msg": "Pipeline timeout (180s)"})
                 return
-
             yield _sse(event)
-
             if event["type"] in ("done", "error"):
                 return
 
@@ -284,29 +415,206 @@ def migrate():
 
 
 # ══════════════════════════════════════════════════════════════════
+# /api/call-graph  — cross-file dependency analysis (SSE)
+# ══════════════════════════════════════════════════════════════════
+
+@app.route("/api/call-graph", methods=["GET", "POST"])
+def run_call_graph():
+    body            = request.get_json(silent=True) or {}
+    requested_files = body.get("files", [])
+
+    q: "queue.Queue[dict]" = queue.Queue()
+
+    def run():
+        # Call-graph cũng set thread_q để log xuất hiện ở UI
+        _set_thread_queue(q)
+        try:
+            from utils.call_graph import analyze_dependencies
+            from config import OUTPUT_DIR
+
+            stem_to_file: dict[str, str] = {}
+            for ext in _SOURCE_EXTS:
+                for p in TESTS_DIR.rglob(f"*{ext}"):
+                    stem_to_file[p.stem] = p.name
+
+            if requested_files:
+                scan_files = [Path(f).name for f in requested_files]
+            else:
+                scan_files = []
+                for p in Path(OUTPUT_DIR).glob("_debug_3_*.json"):
+                    stem   = p.name.replace("_debug_3_", "").replace(".json", "")
+                    actual = stem_to_file.get(stem, stem + ".c")
+                    scan_files.append(actual)
+
+            if not scan_files:
+                q.put({"type": "error",
+                       "msg": "No extracted patterns found. Run migration pipeline first."})
+                return
+
+            print(f"[CallGraph] Loading patterns for {len(scan_files)} file(s) ...")
+
+            all_file_patterns: dict[str, list[dict]] = {}
+            for fname in scan_files:
+                stem       = Path(fname).stem
+                debug_path = Path(OUTPUT_DIR) / f"_debug_3_{stem}.json"
+                if not debug_path.exists():
+                    print(f"[CallGraph] Skipping {fname}: no debug JSON found")
+                    continue
+                patterns = json.loads(debug_path.read_text(encoding="utf-8"))
+                if patterns:
+                    all_file_patterns[fname] = patterns
+                    print(f"[CallGraph] Loaded {len(patterns)} patterns from {fname}")
+
+            if not all_file_patterns:
+                q.put({"type": "error",
+                       "msg": "All specified files missing debug JSONs. Run pipeline first."})
+                return
+
+            print("[CallGraph] Starting dependency analysis ...")
+
+            enriched = analyze_dependencies(all_file_patterns, TESTS_DIR)
+
+            with _call_graph_lock:
+                _call_graph_cache.update(enriched)
+                for f in enriched:
+                    _call_graph_pending.discard(f)
+
+            for fname, patterns in enriched.items():
+                stem     = Path(fname).stem
+                out_path = Path(OUTPUT_DIR) / f"_debug_callgraph_{stem}.json"
+                out_path.write_text(
+                    json.dumps(patterns, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+                print(f"[CallGraph] Saved → {out_path.name}")
+
+            total_deps = sum(
+                len(p.get("callees", [])) + len(p.get("callers", []))
+                for pats in enriched.values()
+                for p in pats
+            )
+
+            q.put({
+                "type":                  "done",
+                "files":                 list(enriched.keys()),
+                "total_dependency_refs": total_deps,
+            })
+
+        except Exception as exc:
+            q.put({"type": "error", "msg": str(exc), "trace": traceback.format_exc()})
+        finally:
+            _clear_thread_queue()
+
+    threading.Thread(target=run, daemon=True).start()
+
+    def stream():
+        while True:
+            try:
+                event = q.get(timeout=300)
+            except queue.Empty:
+                yield _sse({"type": "error", "msg": "Call graph timeout (300s)"})
+                return
+            yield _sse(event)
+            if event["type"] in ("done", "error"):
+                return
+
+    return Response(
+        stream_with_context(stream()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control":               "no-cache",
+            "X-Accel-Buffering":           "no",
+            "Access-Control-Allow-Origin": "*",
+        },
+    )
+
+
+# ══════════════════════════════════════════════════════════════════
+# /api/call-graph/file
+# ══════════════════════════════════════════════════════════════════
+
+@app.route("/api/call-graph/file")
+def get_call_graph_file():
+    name = request.args.get("name", "").strip()
+    if not name:
+        return jsonify({"error": "Missing ?name="}), 400
+
+    safe = Path(name).name
+
+    with _call_graph_lock:
+        patterns   = _call_graph_cache.get(safe)
+        is_pending = safe in _call_graph_pending
+
+    if patterns is None and is_pending:
+        return jsonify({"status": "pending", "file": safe}), 202
+
+    if patterns is None:
+        from config import OUTPUT_DIR
+        stem       = Path(safe).stem
+        debug_path = Path(OUTPUT_DIR) / f"_debug_callgraph_{stem}.json"
+        if debug_path.exists():
+            patterns = json.loads(debug_path.read_text(encoding="utf-8"))
+            with _call_graph_lock:
+                _call_graph_cache[safe] = patterns
+        else:
+            pipeline_json = Path(OUTPUT_DIR) / f"_debug_3_{stem}.json"
+            if not pipeline_json.exists():
+                return jsonify({
+                    "error": f"No pipeline output for '{safe}'. Run migration pipeline first."
+                }), 404
+
+            pipeline_patterns = json.loads(pipeline_json.read_text(encoding="utf-8"))
+            with _call_graph_lock:
+                already_pending = safe in _call_graph_pending
+
+            if not already_pending:
+                threading.Thread(
+                    target=_run_auto_callgraph,
+                    args=(safe, pipeline_patterns),
+                    daemon=True,
+                ).start()
+
+            return jsonify({"status": "pending", "file": safe}), 202
+
+    summary = {
+        "patterns_with_deps": sum(1 for p in patterns if p.get("callees") or p.get("callers")),
+        "total_callers":  sum(len(p.get("callers",  [])) for p in patterns),
+        "total_callees":  sum(len(p.get("callees", [])) for p in patterns),
+    }
+
+    return jsonify({"file": safe, "patterns": patterns, "summary": summary})
+
+
+# ══════════════════════════════════════════════════════════════════
 # ENTRY POINT
 # ══════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    c_files = (list(TESTS_DIR.glob("*.c")) +
-               list(TESTS_DIR.glob("*.pc")) +
-               list(TESTS_DIR.glob("*.pro")))
+    from config import BEDROCK_MODEL_ID
 
-    print("=" * 60)
-    print(f"  C→C# Migration Server  [Gemini: {GEMINI_MODEL}]")
-    print(f"  Listening  : http://127.0.0.1:5005")
-    print(f"  Tests dir  : {TESTS_DIR}")
-    print(f"  Files found: {len(c_files)}")
-    for f in sorted(c_files):
-        print(f"    • {f.name}")
-    print()
-    print("  Endpoints:")
-    print("    GET /health")
-    print("    GET /api/files")
-    print("    GET /api/file?name=X.c")
-    print("    GET /api/migrate?name=X.c    ← SSE pipeline stream")
-    print("    GET /api/output?name=X.c     ← generated .cs")
-    print("    GET /api/output/csv?name=X.c ← generated CSV")
-    print("=" * 60)
+    tree = _build_tree(TESTS_DIR, TESTS_DIR)
+    flat = _flatten_tree(tree) if tree else []
 
-    app.run(host="127.0.0.1", port=5005, debug=False, threaded=True)
+    builtins._orig_print("=" * 60)                                          # type: ignore
+    builtins._orig_print(f"  C→C# Migration Server  v5.3  [Bedrock: {BEDROCK_MODEL_ID}]")  # type: ignore
+    builtins._orig_print(f"  Listening  : http://127.0.0.1:5005")           # type: ignore
+    builtins._orig_print(f"  Tests dir  : {TESTS_DIR}")                     # type: ignore
+    builtins._orig_print(f"  Files found: {len(flat)}")                     # type: ignore
+    for f in flat:
+        indent = "  " * (f["path"].count("/"))
+        builtins._orig_print(f"    {indent}• {f['path']}")                  # type: ignore
+    builtins._orig_print()                                                   # type: ignore
+    builtins._orig_print("  Endpoints:")
+    builtins._orig_print("    GET  /health")
+    builtins._orig_print("    GET  /api/files")
+    builtins._orig_print("    GET  /api/file?name=subdir/X.c")
+    builtins._orig_print("    GET  /api/migrate?name=subdir/X.c  ← SSE pipeline stream")
+    builtins._orig_print("    GET  /api/output?name=X.c")
+    builtins._orig_print("    GET  /api/output/csv?name=X.c")
+    builtins._orig_print("    POST /api/call-graph               ← SSE cross-file analysis")
+    builtins._orig_print("    GET  /api/call-graph/file?name=X.c")
+    builtins._orig_print()
+    builtins._orig_print("  Log routing: thread-local queue (v5.3) — parallel-safe.")
+    builtins._orig_print("=" * 60)                                          # type: ignore
+
+    app.run(host="127.0.0.1", port=5005, debug=False, threade
