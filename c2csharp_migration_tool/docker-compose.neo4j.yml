@@ -1,0 +1,71 @@
+
+# ══════════════════════════════════════════════════════════════════
+# Neo4j for C→C# Migration Tool
+# ══════════════════════════════════════════════════════════════════
+#
+# Khởi động:
+#   docker compose -f docker-compose.neo4j.yml up -d
+#
+# Neo4j Browser:
+#   http://localhost:7474
+#   user: neo4j  /  password: migration123
+#
+# Bolt (dùng cho Python driver):
+#   bolt://localhost:7687
+#
+# Dừng:
+#   docker compose -f docker-compose.neo4j.yml down
+#
+# Xoá toàn bộ data:
+#   docker compose -f docker-compose.neo4j.yml down -v
+# ══════════════════════════════════════════════════════════════════
+
+services:
+  neo4j:
+    image: neo4j:5.18-community
+    container_name: c2csharp_neo4j
+    restart: unless-stopped
+    ports:
+      # HTTP Browser UI
+      - "7474:7474"
+      # Bolt protocol (Python driver)
+      - "7687:7687"
+    environment:
+      # Đổi password nếu cần — nhớ cập nhật trong keys.py
+      NEO4J_AUTH: neo4j/migration123
+
+      # Tắt xác thực để dev local (tuỳ chọn — bỏ comment nếu muốn)
+      # NEO4J_AUTH: none
+
+      # Tăng heap cho file lớn
+      NEO4J_server_memory_heap_initial__size: 512m
+      NEO4J_server_memory_heap_max__size: 1G
+      NEO4J_server_memory_pagecache_size: 512m
+
+      # Cho phép kết nối từ mọi host (để máy khác trong mạng LAN truy cập)
+      NEO4J_server_default__listen__address: 0.0.0.0
+
+      # CORS cho Neo4j Browser (cho phép embed từ HTML)
+      NEO4J_dbms_security_procedures_unrestricted: "apoc.*,algo.*"
+
+    volumes:
+      # Persistent data
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+      # Import folder (nếu cần load CSV)
+      - neo4j_import:/var/lib/neo4j/import
+
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:7474"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+volumes:
+  neo4j_data:
+    driver: local
+  neo4j_logs:
+    driver: local
+  neo4j_import:
+    driver: local
