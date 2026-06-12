@@ -14,7 +14,7 @@ from prompts.agent_prompts import EXTRACTOR_SYSTEM, EXTRACTOR_USER
 
 CHUNK_CHARS   = 4000
 OVERLAP_LINES = 3
-_MAX_WORKERS  = 20
+_MAX_WORKERS  = 40
 
 
 def extract_patterns(filename: str, source_code: str) -> list[dict]:
