@@ -15,7 +15,7 @@ from prompts.agent_prompts import TRANSLATOR_SYSTEM, TRANSLATOR_USER
 
 _BATCH_SIZE     = 32    # max patterns per batch
 _MAX_PAYLOAD_KB = 60    # max KB per request body
-_MAX_WORKERS    = 10
+_MAX_WORKERS    = 40
 
 
 def translate_patterns(classified: list[dict], source_code: str) -> list[dict]:
