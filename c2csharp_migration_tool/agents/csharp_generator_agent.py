@@ -1,5 +1,5 @@
 """
-agents/csharp_generator_agent.py — AGENT 4  v5
+agents/csharp_generator_agent.py — AGENT 4  v6
 ===============================================
 Receives:
   - filename       : original source filename
@@ -7,13 +7,21 @@ Receives:
   - migration_data : enriched pattern list from Agents 1-3
 
 Builds a COMPACT MIGRATION MAP from migration_data (not the raw JSON dump)
-and passes it alongside the source to Gemini for faithful C# generation.
+and passes it alongside the source to Claude for faithful C# generation.
+
+v6 changes vs v5:
+  - Migration map now includes an "ID" column (pattern id) so that
+    Agent4 can emit // [P:<id>:START] ... // [P:<id>:END] markers
+    around each pattern's output (see CSHARP_GEN_SYSTEM / CSHARP_GEN_USER).
+  - These markers are parsed + stripped by agents/cs_marker_mapper.py
+    in pipeline.py to populate cs_line_start / cs_line_end for 1-1 UI
+    mapping and Neo4j persistence.
 
 Compact map format (one row per pattern, pipe-delimited):
-  LINE | KIND        | C SOURCE (truncated)          | C# EQUIVALENT
-  ─────┼─────────────┼───────────────────────────────┼──────────────────────
-  22   | rcs_tag     | static char RcsTag[]={...}    | private static readon…
-  24   | pragma_dir  | #pragma PACK 4                | [StructLayout(Pack=4)]
+  ID   | LINE | KIND        | C SOURCE (truncated)          | C# EQUIVALENT
+  ─────┼──────┼─────────────┼───────────────────────────────┼──────────────────────
+  1    | 22   | rcs_tag     | static char RcsTag[]={...}    | private static readon…
+  2    | 24   | pragma_dir  | #pragma PACK 4                | [StructLayout(Pack=4)]
   ...
 
 This is ~60% fewer tokens than raw JSON while giving Agent 4 all it needs.
@@ -25,6 +33,7 @@ from prompts.agent_prompts import CSHARP_GEN_SYSTEM, CSHARP_GEN_USER
 
 
 # ── Max chars per cell to keep map readable ────────────────────
+_ID_MAX   = 5    # pattern id column
 _SRC_MAX  = 72   # C source snippet column
 _CS_MAX   = 80   # C# equivalent column
 _NOTE_MAX = 60   # migration note column
@@ -41,6 +50,9 @@ def _build_migration_map(migration_data: list[dict]) -> str:
     Build a compact pipe-delimited table from migration_data.
     Skips patterns where cs_equivalent matches source verbatim (pure comments).
     Groups by raw_type for readability.
+
+    v6: first column is the pattern "id" — required for Agent4 to emit
+    // [P:<id>:START] / // [P:<id>:END] markers around its output.
     """
     if not migration_data:
         return "(no patterns)"
@@ -49,10 +61,10 @@ def _build_migration_map(migration_data: list[dict]) -> str:
 
     # Header
     lines.append(
-        f"{'LINE':<6} | {'KIND':<18} | {'C SOURCE':<{_SRC_MAX}} | "
+        f"{'ID':<{_ID_MAX}} | {'LINE':<6} | {'KIND':<18} | {'C SOURCE':<{_SRC_MAX}} | "
         f"{'C# EQUIVALENT':<{_CS_MAX}} | NOTE"
     )
-    lines.append("─" * (6 + 3 + 18 + 3 + _SRC_MAX + 3 + _CS_MAX + 3 + 30))
+    lines.append("─" * (_ID_MAX + 3 + 6 + 3 + 18 + 3 + _SRC_MAX + 3 + _CS_MAX + 3 + 30))
 
     # Sort by line number for readability
     sorted_patterns = sorted(
@@ -61,6 +73,7 @@ def _build_migration_map(migration_data: list[dict]) -> str:
     )
 
     for p in sorted_patterns:
+        pid        = p.get("id", "")
         line_start = (p.get("line_range") or [0])[0]
         kind       = p.get("raw_type", "")[:18]
         src        = _truncate(p.get("source_snippet", ""), _SRC_MAX)
@@ -75,11 +88,11 @@ def _build_migration_map(migration_data: list[dict]) -> str:
             cs = "(keep verbatim)"
 
         # Add risk indicator for high/very-high risk items
-        if risk in ("Cao", "Rất cao"):
+        if risk in ("Cao", "Rất cao", "高", "非常に高い"):
             note = f"[{risk}] " + note
 
         lines.append(
-            f"{str(line_start):<6} | {kind:<18} | {src:<{_SRC_MAX}} | "
+            f"{str(pid):<{_ID_MAX}} | {str(line_start):<6} | {kind:<18} | {src:<{_SRC_MAX}} | "
             f"{cs:<{_CS_MAX}} | {note}{review}"
         )
 
@@ -93,16 +106,22 @@ def generate_csharp_file(
 ) -> str:
     """
     Generate complete C# file.
-    Agent 4 now uses BOTH source_code AND the compact migration map.
+    Agent 4 uses BOTH source_code AND the compact migration map (with
+    pattern IDs), and is instructed (via CSHARP_GEN_SYSTEM) to wrap each
+    pattern's output in // [P:<id>:START] / // [P:<id>:END] markers.
+
+    NOTE: the returned string still contains these RAW markers — they are
+    parsed + stripped downstream by agents/cs_marker_mapper.attach_marker_mapping().
+    Do NOT write this raw string directly to the final .cs file.
     """
-    print("  [Agent4] Building compact migration map ...")
+    print("  [Agent4] Building compact migration map (with pattern IDs) ...")
     migration_map = _build_migration_map(migration_data)
     map_lines = migration_map.count("\n") + 1
     map_chars = len(migration_map)
     print(f"  [Agent4] Map: {map_lines} rows, {map_chars} chars "
           f"(vs ~{len(str(migration_data))} chars raw JSON)")
 
-    print("  [Agent4] Generating C# source file ...")
+    print("  [Agent4] Generating C# source file (with [P:id] markers) ...")
     user_prompt = CSHARP_GEN_USER.format(
         filename=filename,
         source_code=source_code,
@@ -112,7 +131,7 @@ def generate_csharp_file(
 
     cs = call_claude(CSHARP_GEN_SYSTEM, user_prompt, max_tokens=16000)
     cs = _strip_fences(cs)
-    print(f"  [Agent4] Generated {len(cs)} chars.")
+    print(f"  [Agent4] Generated {len(cs)} chars (raw, markers not yet stripped).")
     return cs
 
 
