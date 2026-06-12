@@ -15,7 +15,7 @@ from prompts.agent_prompts import CLASSIFIER_SYSTEM, CLASSIFIER_USER
 
 _BATCH_SIZE     = 50
 _MAX_PAYLOAD_KB = 40
-_MAX_WORKERS    = 10
+_MAX_WORKERS    = 40
 
 
 def classify_patterns(extracted: list[dict]) -> list[dict]:
