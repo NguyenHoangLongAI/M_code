@@ -2,14 +2,15 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>C → C# Migration Tool — AWS Bedrock</title>
+<title>C → C# Migration Tool — AWS Bedrock + Neo4j</title>
 <style>
 :root {
   --bg:#0d1117; --s1:#161b22; --s2:#1c2128; --s3:#21262d;
   --bd:#30363d; --bd2:#3d444d;
   --green:#3fb950; --blue:#58a6ff; --yellow:#d29922;
   --red:#f85149; --orange:#f0883e; --purple:#bc8cff;
-  --teal:#39d1c5;
+  --teal:#39d1c5; --neo4j:#018BFF;
+  --create:#2dd4bf; --call:#60a5fa; --system:#6b7280;
   --text:#e6edf3; --dim:#8b949e; --dim2:#656d76;
   --mono:'Cascadia Code','Fira Code',Consolas,monospace;
 }
@@ -32,6 +33,9 @@ button:disabled{opacity:.35;cursor:not-allowed}
 .chip-ok{color:var(--green);border-color:rgba(63,185,80,.4);background:rgba(63,185,80,.1)}
 .chip-err{color:var(--red);border-color:rgba(248,81,73,.4);background:rgba(248,81,73,.1)}
 .chip-connecting{color:var(--blue);border-color:rgba(88,166,255,.4);background:rgba(88,166,255,.1)}
+.chip-neo4j{color:var(--neo4j);border-color:rgba(1,139,255,.4);background:rgba(1,139,255,.1)}
+.chip-neo4j-err{color:var(--red);border-color:rgba(248,81,73,.4);background:rgba(248,81,73,.08)}
+.chip-nollm{color:var(--yellow);border-color:rgba(210,153,34,.4);background:rgba(210,153,34,.1)}
 .hdr-right{margin-left:auto;display:flex;align-items:center;gap:8px}
 .hdr-server-url{font-family:var(--mono);font-size:11px;color:var(--dim);background:var(--s3);border:1px solid var(--bd);border-radius:4px;padding:3px 8px;outline:none;width:175px;transition:border-color .15s}
 .hdr-server-url:focus{border-color:var(--blue)}
@@ -40,6 +44,69 @@ button:disabled{opacity:.35;cursor:not-allowed}
 
 /* ── LAYOUT ── */
 .body{display:flex;flex:1;overflow:hidden}
+
+/* ══════════════════════════════════════════════
+   FUNC KIND CHIP STYLES  (v2.0)
+   ══════════════════════════════════════════════ */
+/* base dep chip */
+.dep-call-chip{
+  display:inline-flex;align-items:center;gap:3px;
+  font-family:var(--mono);font-size:9px;padding:1px 5px;
+  border-radius:4px;margin:1px 2px 1px 0;cursor:pointer;
+  border:1px solid;white-space:nowrap;transition:opacity .15s;
+}
+.dep-call-chip:hover{opacity:.75}
+
+/* func_kind == "call" → blue */
+.fk-call{
+  color:var(--call);border-color:rgba(96,165,250,.45);
+  background:rgba(96,165,250,.1);
+}
+/* func_kind == "create" → teal/green */
+.fk-create{
+  color:var(--create);border-color:rgba(45,212,191,.5);
+  background:rgba(45,212,191,.12);font-weight:700;
+}
+/* func_kind == "system" → muted gray */
+.fk-system{
+  color:var(--system);border-color:rgba(107,114,128,.4);
+  background:rgba(107,114,128,.08);
+}
+/* has definition link badge */
+.chip-def-badge{
+  display:inline-block;font-size:8px;padding:0 3px;border-radius:3px;
+  background:rgba(63,185,80,.25);color:var(--green);margin-left:2px;vertical-align:middle;
+}
+/* kind badge for CREATE */
+.chip-create-badge{
+  display:inline-block;font-size:8px;padding:0 3px;border-radius:3px;
+  background:rgba(45,212,191,.25);color:var(--create);margin-left:2px;vertical-align:middle;
+}
+/* caller chips */
+.fk-caller-call{
+  color:#a78bfa;border-color:rgba(167,139,250,.45);
+  background:rgba(167,139,250,.1);
+}
+.fk-caller-create{
+  color:#34d399;border-color:rgba(52,211,153,.45);
+  background:rgba(52,211,153,.1);font-weight:700;
+}
+.fk-caller-system{
+  color:var(--system);border-color:rgba(107,114,128,.35);
+  background:rgba(107,114,128,.06);
+}
+
+/* func-kind legend in bottom-bar */
+.fk-legend{display:flex;align-items:center;gap:6px;font-size:9px;color:var(--dim2)}
+.fk-dot{display:inline-block;width:7px;height:7px;border-radius:50%}
+.fk-dot-call{background:var(--call)}
+.fk-dot-create{background:var(--create)}
+.fk-dot-system{background:var(--system)}
+
+/* func-kind summary badges in review panel */
+.rp-fk-row{display:flex;flex-direction:column;gap:3px;margin-top:2px}
+.rp-fk-label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--dim2)}
+.rp-fk-chips{display:flex;flex-wrap:wrap;gap:3px;min-height:16px}
 
 /* ── SIDEBAR ── */
 .sidebar{width:240px;min-width:240px;background:var(--s1);border-right:1px solid var(--bd);display:flex;flex-direction:column;overflow:hidden}
@@ -51,9 +118,7 @@ button:disabled{opacity:.35;cursor:not-allowed}
 .sb-search:focus{border-color:var(--blue)}
 .sb-search::placeholder{color:var(--dim2)}
 .file-tree{flex:1;overflow-y:auto;padding:4px 0}
-
-/* ── TREE NODES ── */
-.tree-dir{display:flex;align-items:center;gap:5px;padding:4px 8px;cursor:pointer;user-select:none;border-radius:5px;margin:0 4px 1px;transition:background .1s;position:relative}
+.tree-dir{display:flex;align-items:center;gap:5px;padding:4px 8px;cursor:pointer;user-select:none;border-radius:5px;margin:0 4px 1px;transition:background .1s}
 .tree-dir:hover{background:var(--s2)}
 .dir-toggle{font-size:9px;color:var(--dim2);width:12px;flex-shrink:0;transition:transform .15s;display:inline-block;text-align:center}
 .dir-toggle.open{transform:rotate(90deg)}
@@ -63,17 +128,18 @@ button:disabled{opacity:.35;cursor:not-allowed}
 .dir-badge.has-sel{color:var(--blue);background:rgba(88,166,255,.12)}
 .tree-children{overflow:hidden;transition:max-height .2s ease}
 .tree-children.collapsed{max-height:0!important}
-.tree-file{display:flex;align-items:center;gap:5px;padding:4px 8px 4px 0;cursor:pointer;border-radius:5px;margin:0 4px 1px;border:1px solid transparent;transition:background .1s;position:relative}
+.tree-file{display:flex;align-items:center;gap:5px;padding:4px 8px 4px 0;cursor:pointer;border-radius:5px;margin:0 4px 1px;border:1px solid transparent;transition:background .1s}
 .tree-file:hover{background:var(--s2)}
 .tree-file.active-view{background:rgba(88,166,255,.12);border-color:rgba(88,166,255,.35)}
+.tree-file.db-cached{border-color:rgba(1,139,255,.3);background:rgba(1,139,255,.05)}
 .tree-file .fi-cb{width:14px;height:14px;accent-color:var(--blue);cursor:pointer;flex-shrink:0;margin-left:8px}
 .tree-file .fi-icon{font-size:12px;flex-shrink:0}
 .tree-file .fi-name{font-size:11px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
 .tree-file .fi-badge{font-size:9px;padding:1px 4px;border-radius:8px;background:var(--s3);color:var(--dim);white-space:nowrap;flex-shrink:0}
 .tree-file .fi-badge.done{background:rgba(63,185,80,.15);color:var(--green)}
+.tree-file .fi-badge.db{background:rgba(1,139,255,.15);color:var(--neo4j)}
 .tree-file .fi-badge.busy{background:rgba(88,166,255,.15);color:var(--blue);animation:pulse 1s infinite}
 .tree-file .fi-badge.err{background:rgba(248,81,73,.15);color:var(--red)}
-
 .sb-actions{padding:7px 8px;border-top:1px solid var(--bd);display:flex;gap:5px;flex-shrink:0}
 .btn-sel-all{flex:1;font-size:10.5px;padding:4px 4px;background:transparent;color:var(--dim)}
 .btn-sel-all:hover{background:var(--s3);color:var(--text)}
@@ -89,6 +155,10 @@ button:disabled{opacity:.35;cursor:not-allowed}
 .sb-bedrock-val{color:var(--text);font-family:var(--mono);font-size:10px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sb-bedrock-val.ok{color:var(--green)}
 .sb-bedrock-val.err{color:var(--red)}
+.sb-bedrock-val.neo{color:var(--neo4j)}
+.sb-bedrock-val.nollm{color:var(--yellow)}
+.sb-db-bar{padding:5px 8px;border-top:1px solid var(--bd);flex-shrink:0;display:flex;align-items:center;gap:5px}
+.db-stats-chip{font-size:9px;color:var(--dim2);white-space:nowrap}
 
 /* ── WORKSPACE ── */
 .workspace{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
@@ -101,7 +171,7 @@ button:disabled{opacity:.35;cursor:not-allowed}
 .view-tab .tab-close:hover{color:var(--red);background:rgba(248,81,73,.15)}
 .view-tab .tab-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
 .dot-idle{background:var(--dim2)}.dot-run{background:var(--blue);animation:pulse 1s infinite}
-.dot-done{background:var(--green)}.dot-err{background:var(--red)}
+.dot-done{background:var(--green)}.dot-err{background:var(--red)}.dot-db{background:var(--neo4j)}
 .tab-bar-empty{padding:0 14px;font-size:11.5px;color:var(--dim);display:flex;align-items:center}
 .view-panels{flex:1;overflow:hidden;position:relative}
 .view-panel{display:none;flex-direction:column;height:100%;overflow:hidden}
@@ -123,15 +193,22 @@ button:disabled{opacity:.35;cursor:not-allowed}
 .btn-dl:hover{background:rgba(63,185,80,.1)}
 .btn-dl.blue{color:var(--blue);border-color:var(--blue)}
 .btn-dl.blue:hover{background:rgba(88,166,255,.1)}
+.btn-db-del{font-size:11px;padding:3px 8px;background:transparent;color:var(--red);border-color:rgba(248,81,73,.4);display:none}
+.btn-db-del:hover{background:rgba(248,81,73,.1)}
 .f-status{font-size:11px;color:var(--dim);margin-left:auto}
-.f-status.run{color:var(--blue)}.f-status.ok{color:var(--green)}.f-status.err{color:var(--red)}
+.f-status.run{color:var(--blue)}.f-status.ok{color:var(--green)}.f-status.err{color:var(--red)}.f-status.db{color:var(--neo4j)}
+.f-src-badge{font-size:9px;padding:1px 5px;border-radius:8px;white-space:nowrap}
+.f-src-badge.from-db{background:rgba(1,139,255,.15);color:var(--neo4j);border:1px solid rgba(1,139,255,.3)}
+.f-src-badge.from-run{background:rgba(63,185,80,.12);color:var(--green);border:1px solid rgba(63,185,80,.3)}
 .f-pipeline{background:var(--s2);border-bottom:1px solid var(--bd);padding:4px 12px;display:flex;align-items:center;gap:3px;flex-shrink:0;overflow-x:auto}
 .ag{display:flex;align-items:center;gap:3px;padding:2px 8px;border-radius:12px;border:1px solid var(--bd);font-size:10px;white-space:nowrap;color:var(--dim);transition:all .2s}
 .ag .n{font-weight:700}
 .ag.run{border-color:var(--blue);color:var(--blue);background:rgba(88,166,255,.08)}
 .ag.run::before{content:'';display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--blue);margin-right:3px;animation:pulse 1s infinite}
 .ag.done{border-color:var(--green);color:var(--green);background:rgba(63,185,80,.08)}
+.ag.db{border-color:var(--neo4j);color:var(--neo4j);background:rgba(1,139,255,.08)}
 .ag.err{border-color:var(--red);color:var(--red);background:rgba(248,81,73,.08)}
+.ag.nollm{border-color:var(--yellow);color:var(--yellow);background:rgba(210,153,34,.08)}
 .ag-sep{color:var(--bd);font-size:11px}
 .f-elapsed{margin-left:auto;font-size:10px;color:var(--dim);font-family:var(--mono)}
 .top-section{flex:0 0 55%;display:flex;overflow:hidden;border-bottom:2px solid var(--bd2);min-height:0}
@@ -152,8 +229,11 @@ button:disabled{opacity:.35;cursor:not-allowed}
 .line-body{flex:1;padding-right:14px;white-space:pre;color:var(--text)}
 .code-view.cs .line-body{color:#c9d1d9}
 .code-line.hl-active .line-num{color:var(--blue)}
-.code-line.hl-active .line-body{background:rgba(88,166,255,.13);border-left:2px solid var(--blue);padding-left:2px}
-.code-line.hl-range .line-body{background:rgba(88,166,255,.06)}
+.code-line.hl-active .line-body{background:rgba(88,166,255,.18);border-left:3px solid var(--blue);padding-left:1px}
+.code-line.hl-range .line-body{background:rgba(88,166,255,.07)}
+.code-line.hl-cs-active .line-num{color:var(--green)}
+.code-line.hl-cs-active .line-body{background:rgba(63,185,80,.18);border-left:3px solid var(--green);padding-left:1px}
+.code-line.hl-cs-range .line-body{background:rgba(63,185,80,.07)}
 .resize-h{height:4px;background:var(--bd);cursor:row-resize;flex-shrink:0;transition:background .15s}
 .resize-h:hover,.resize-h.dragging{background:var(--blue)}
 .bottom-section{flex:1;display:flex;overflow:hidden;min-height:0}
@@ -171,7 +251,7 @@ button:disabled{opacity:.35;cursor:not-allowed}
 .log-line{line-height:1.8;display:flex;gap:6px}
 .log-ts{color:var(--dim2);font-size:10px;flex-shrink:0;padding-top:1px}
 .log-msg{flex:1;word-break:break-word}
-.l-step{color:var(--blue);font-weight:700}.l-ok{color:var(--green)}.l-warn{color:var(--yellow)}.l-err{color:var(--red)}.l-sub{color:var(--dim)}
+.l-step{color:var(--blue);font-weight:700}.l-ok{color:var(--green)}.l-warn{color:var(--yellow)}.l-err{color:var(--red)}.l-sub{color:var(--dim)}.l-db{color:var(--neo4j)}
 .tbl-wrap{flex:1;overflow:auto;display:none}
 .tbl-wrap.visible{display:block}
 table{width:100%;border-collapse:collapse;font-size:11px}
@@ -190,16 +270,10 @@ tbody tr.row-selected td:first-child{border-left:2px solid var(--blue)}
 .rs-fix{color:var(--yellow);border-color:rgba(210,153,34,.5);background:rgba(210,153,34,.1)}
 .rs-reject{color:var(--red);border-color:rgba(248,81,73,.5);background:rgba(248,81,73,.1)}
 .rs-none{color:var(--dim);border-color:var(--bd);background:transparent}
-.dep-call{display:inline-block;font-family:var(--mono);font-size:9px;padding:1px 4px;border-radius:3px;margin:1px 2px 1px 0;cursor:pointer;border:1px solid;white-space:nowrap}
-.dep-stdlib{color:var(--dim);border-color:var(--bd);background:transparent}
-.dep-local{color:var(--blue);border-color:rgba(88,166,255,.4);background:rgba(88,166,255,.08)}
-.dep-extern{color:var(--orange);border-color:rgba(240,136,62,.4);background:rgba(240,136,62,.08)}
-.dep-unknown{color:var(--dim2);border-color:var(--bd2);background:transparent}
-.dep-caller{color:var(--purple);border-color:rgba(188,140,255,.4);background:rgba(188,140,255,.08)}
-
-/* Review panel */
+.map-badge{display:inline-block;font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;background:rgba(63,185,80,.15);color:var(--green);border:1px solid rgba(63,185,80,.4);white-space:nowrap;cursor:pointer}
+.map-badge:hover{background:rgba(63,185,80,.3)}
 .review-panel{width:0;min-width:0;overflow:hidden;background:var(--s1);border-left:1px solid var(--bd);display:flex;flex-direction:column;transition:width .22s ease,min-width .22s ease;flex-shrink:0}
-.review-panel.open{width:300px;min-width:300px}
+.review-panel.open{width:320px;min-width:320px}
 .rp-hdr{padding:9px 13px 7px;border-bottom:1px solid var(--bd);flex-shrink:0;display:flex;align-items:center;gap:7px}
 .rp-title{font-size:12px;font-weight:700;flex:1}
 .rp-id{font-size:10px;color:var(--dim);font-family:var(--mono)}
@@ -222,10 +296,8 @@ tbody tr.row-selected td:first-child{border-left:2px solid var(--blue)}
 .rp-select{flex:1;background:var(--s2);border:1px solid var(--bd);border-radius:6px;color:var(--text);font-size:11.5px;padding:4px 7px;outline:none;cursor:pointer;transition:border-color .15s}
 .rp-select:focus{border-color:var(--blue)}
 .rp-select option{background:var(--s2)}
-.rp-dep-section{background:var(--s2);border-radius:6px;border:1px solid var(--bd);padding:8px 10px;display:flex;flex-direction:column;gap:6px}
-.rp-dep-row{display:flex;flex-direction:column;gap:3px}
-.rp-dep-label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--dim2)}
-.rp-dep-chips{display:flex;flex-wrap:wrap;gap:3px}
+/* func-kind section in review panel */
+.rp-fk-section{background:var(--s2);border-radius:6px;border:1px solid var(--bd);padding:8px 10px;display:flex;flex-direction:column;gap:8px}
 .rp-dep-empty{font-size:10px;color:var(--dim2);font-style:italic}
 .rp-dep-pending{font-size:10px;color:var(--blue);font-style:italic;animation:pulse 1.5s infinite}
 .rp-foot{padding:8px 13px;border-top:1px solid var(--bd);display:flex;gap:6px;flex-shrink:0}
@@ -235,7 +307,6 @@ tbody tr.row-selected td:first-child{border-left:2px solid var(--blue)}
 .rp-nav:hover:not(:disabled){background:var(--s3);color:var(--text)}
 .empty-state{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--dim);font-size:12px}
 .empty-state svg{opacity:.15}
-
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
 </style>
 </head>
@@ -245,7 +316,9 @@ tbody tr.row-selected td:first-child{border-left:2px solid var(--blue)}
   <span style="font-size:18px">⚙️</span>
   <div class="hdr-title">C / Pro*C <em>→</em> C# Migration Tool</div>
   <span class="chip chip-bedrock">☁ AWS Bedrock</span>
+  <span class="chip chip-nollm" title="Agent 4: rule-based assembly, no LLM">⚡ Agent4=NoLLM</span>
   <span class="chip chip-model" id="modelChip">⬤ —</span>
+  <span class="chip chip-neo4j-err" id="neo4jChip" title="Neo4j DB" style="cursor:pointer" onclick="openNeo4jBrowser()">🗄 Neo4j —</span>
   <div class="hdr-right">
     <span id="srvChip" class="chip chip-err">⬤ オフライン</span>
     <input id="srvUrl" class="hdr-server-url" value="http://127.0.0.1:5005" spellcheck="false">
@@ -273,22 +346,15 @@ tbody tr.row-selected td:first-child{border-left:2px solid var(--blue)}
       <button class="btn-cg" id="btnCallGraph" onclick="triggerCallGraph()" disabled>⇄ 依存関係分析</button>
     </div>
     <div class="sb-bedrock-info">
-      <div class="sb-bedrock-row">
-        <span class="sb-bedrock-label">Provider</span>
-        <span class="sb-bedrock-val" style="color:var(--teal)">AWS Bedrock</span>
-      </div>
-      <div class="sb-bedrock-row">
-        <span class="sb-bedrock-label">Region</span>
-        <span class="sb-bedrock-val" id="sbRegion">—</span>
-      </div>
-      <div class="sb-bedrock-row">
-        <span class="sb-bedrock-label">Status</span>
-        <span class="sb-bedrock-val" id="sbStatus">—</span>
-      </div>
-      <div class="sb-bedrock-row">
-        <span class="sb-bedrock-label">API Calls</span>
-        <span class="sb-bedrock-val" id="sbCalls">0</span>
-      </div>
+      <div class="sb-bedrock-row"><span class="sb-bedrock-label">Provider</span><span class="sb-bedrock-val" style="color:var(--teal)">AWS Bedrock</span></div>
+      <div class="sb-bedrock-row"><span class="sb-bedrock-label">Agent 4</span><span class="sb-bedrock-val nollm">Rule-based</span></div>
+      <div class="sb-bedrock-row"><span class="sb-bedrock-label">Region</span><span class="sb-bedrock-val" id="sbRegion">—</span></div>
+      <div class="sb-bedrock-row"><span class="sb-bedrock-label">API Calls</span><span class="sb-bedrock-val" id="sbCalls">0</span></div>
+      <div class="sb-bedrock-row"><span class="sb-bedrock-label">Neo4j</span><span class="sb-bedrock-val" id="sbNeo4j">—</span></div>
+      <div class="sb-bedrock-row"><span class="sb-bedrock-label">DB Files</span><span class="sb-bedrock-val" id="sbDbFiles">—</span></div>
+    </div>
+    <div class="sb-db-bar">
+      <span class="db-stats-chip" id="dbStatsChip"></span>
     </div>
   </aside>
 
@@ -305,37 +371,32 @@ tbody tr.row-selected td:first-child{border-left:2px solid var(--blue)}
             <line x1="16" y1="13" x2="8" y2="13"/>
             <line x1="16" y1="17" x2="8" y2="17"/>
           </svg>
-          <div class="welcome-title">C → C# Migration Tool</div>
-          <div class="welcome-sub">左のサイドバーからファイルを選択し、<b>選択実行</b>を押してください</div>
-          <div class="welcome-sub" style="color:var(--dim2);font-size:11px">複数ファイルを同時並列実行できます</div>
+          <div class="welcome-title">C → C# Migration Tool v7 (Agent4=NoLLM)</div>
+          <div class="welcome-sub">関数分類: <span style="color:var(--call)">●call</span> <span style="color:var(--create)">●create</span> <span style="color:var(--system)">●system</span> — クリックで定義元にジャンプ</div>
         </div>
       </div>
     </div>
   </div>
 </div>
 
-<!-- ════ PER-FILE PANEL TEMPLATE ════ -->
 <template id="panelTpl">
   <div class="view-panel" id="panel-__SID__">
     <div class="file-action-bar">
       <button class="btn-run-f" id="btnRun-__SID__" onclick="startOne('__PATH__')">▶ 実行</button>
       <button class="btn-cancel-f" id="btnCancel-__SID__" onclick="cancelOne('__PATH__')">✕ キャンセル</button>
       <button class="btn-clear-f" onclick="clearOne('__PATH__')">クリア</button>
+      <span class="f-src-badge" id="fSrcBadge-__SID__" style="display:none"></span>
       <span class="f-status" id="fStatus-__SID__">準備完了</span>
       <button class="btn-dl" id="btnDlCs-__SID__" onclick="dlCS('__PATH__')" style="display:none">⬇ .cs</button>
       <button class="btn-dl blue" id="btnDlCsv-__SID__" onclick="dlCSV('__PATH__')" style="display:none">⬇ CSV</button>
+      <button class="btn-db-del" id="btnDbDel-__SID__" onclick="deleteFromDb('__PATH__')" title="DBから削除">🗑 DB削除</button>
     </div>
     <div class="f-pipeline">
-      <div class="ag" id="ag0-__SID__"><span class="n">0</span> 読込</div>
-      <span class="ag-sep">›</span>
-      <div class="ag" id="ag1-__SID__"><span class="n">1</span> 抽出</div>
-      <span class="ag-sep">›</span>
-      <div class="ag" id="ag2-__SID__"><span class="n">2</span> 分類</div>
-      <span class="ag-sep">›</span>
-      <div class="ag" id="ag3-__SID__"><span class="n">3</span> 変換</div>
-      <span class="ag-sep">›</span>
-      <div class="ag" id="ag4-__SID__"><span class="n">4</span> C#生成</div>
-      <span class="ag-sep">›</span>
+      <div class="ag" id="ag0-__SID__"><span class="n">0</span> 読込</div><span class="ag-sep">›</span>
+      <div class="ag" id="ag1-__SID__"><span class="n">1</span> 抽出</div><span class="ag-sep">›</span>
+      <div class="ag" id="ag2-__SID__"><span class="n">2</span> 分類</div><span class="ag-sep">›</span>
+      <div class="ag" id="ag3-__SID__"><span class="n">3</span> 変換</div><span class="ag-sep">›</span>
+      <div class="ag nollm" id="ag4-__SID__" title="No LLM — rule-based assembly"><span class="n">4</span> ⚡組立</div><span class="ag-sep">›</span>
       <div class="ag" id="ag5-__SID__"><span class="n">5</span> CSV</div>
       <span class="f-elapsed" id="fElapsed-__SID__"></span>
     </div>
@@ -348,9 +409,7 @@ tbody tr.row-selected td:first-child{border-left:2px solid var(--blue)}
           <span class="pb-pin" id="srcPin-__SID__"></span>
         </div>
         <div class="code-view" id="srcCode-__SID__">
-          <div class="code-lines" id="srcLines-__SID__">
-            <div style="padding:12px 14px;color:var(--dim)">読み込み中…</div>
-          </div>
+          <div class="code-lines" id="srcLines-__SID__"><div style="padding:12px 14px;color:var(--dim)">読み込み中…</div></div>
         </div>
       </div>
       <div class="code-pane">
@@ -361,9 +420,7 @@ tbody tr.row-selected td:first-child{border-left:2px solid var(--blue)}
           <span class="pb-pin" id="csPin-__SID__"></span>
         </div>
         <div class="code-view cs" id="csCode-__SID__">
-          <div class="code-lines" id="csLines-__SID__">
-            <div style="padding:12px 14px;color:var(--dim)">// C# の出力がここに表示されます</div>
-          </div>
+          <div class="code-lines" id="csLines-__SID__"><div style="padding:12px 14px;color:var(--dim)">// C# の出力がここに表示されます</div></div>
         </div>
       </div>
     </div>
@@ -375,6 +432,13 @@ tbody tr.row-selected td:first-child{border-left:2px solid var(--blue)}
           <span class="badge" id="csvBadge-__SID__">0</span>
           <span class="badge warn" id="reviewBadge-__SID__" style="display:none">0 件未レビュー</span>
           <span class="badge dep" id="depBadge-__SID__" style="display:none">⇄ —</span>
+          <span style="margin-left:8px;font-size:10px;color:var(--green)" id="mapStatus-__SID__"></span>
+          <!-- func-kind legend -->
+          <span class="fk-legend" style="margin-left:12px">
+            <span class="fk-dot fk-dot-call"></span><span>call</span>
+            <span class="fk-dot fk-dot-create" style="margin-left:4px"></span><span>create</span>
+            <span class="fk-dot fk-dot-system" style="margin-left:4px"></span><span>system</span>
+          </span>
           <div style="margin-left:auto">
             <button class="btn-dl" onclick="dlCSV('__PATH__')" style="font-size:10px;padding:2px 7px">⬇ CSV</button>
           </div>
@@ -385,7 +449,7 @@ tbody tr.row-selected td:first-child{border-left:2px solid var(--blue)}
               <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
                 <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
               </svg>
-              <div>▶ 実行 ボタンを押して開始</div>
+              <div>▶ 実行 または DBからロード中…</div>
             </div>
           </div>
         </div>
@@ -393,6 +457,7 @@ tbody tr.row-selected td:first-child{border-left:2px solid var(--blue)}
           <table><thead><tr id="csvHead-__SID__"></tr></thead><tbody id="csvBody-__SID__"></tbody></table>
         </div>
       </div>
+      <!-- Review panel -->
       <div class="review-panel" id="reviewPanel-__SID__">
         <div class="rp-hdr">
           <div><div class="rp-title">📝 レビュー</div><div class="rp-id" id="rpId-__SID__">—</div></div>
@@ -407,6 +472,8 @@ tbody tr.row-selected td:first-child{border-left:2px solid var(--blue)}
               <button class="rp-status-btn" id="rsReject-__SID__" onclick="setStatusR('__PATH__','reject')">✕ 却下</button>
             </div>
           </div>
+          <div class="rp-field"><div class="rp-label">C マッピング行</div><div class="rp-label" id="rpSrcRange-__SID__" style="color:var(--orange);font-family:var(--mono)">—</div></div>
+          <div class="rp-field"><div class="rp-label">C# マッピング行</div><div class="rp-label" id="rpCsRange-__SID__" style="color:var(--green);font-family:var(--mono)">—</div></div>
           <div class="rp-field"><div class="rp-label">概要</div><textarea class="rp-textarea" id="rp_summary-__SID__" rows="3"></textarea></div>
           <div class="rp-field"><div class="rp-label">C#パターン</div><textarea class="rp-textarea rp-mono" id="rp_csharp-__SID__" rows="4"></textarea></div>
           <div class="rp-field rp-field-row"><div class="rp-label">難易度</div>
@@ -426,18 +493,23 @@ tbody tr.row-selected td:first-child{border-left:2px solid var(--blue)}
               <option value="1">1/5</option><option value="2">2/5</option><option value="3" selected>3/5</option><option value="4">4/5</option><option value="5">5/5</option>
             </select>
           </div>
-          <div class="rp-dep-section" id="rpDep-__SID__" style="display:none">
-            <div class="rp-dep-row">
-              <div class="rp-dep-label">📎 File origin</div>
-              <div class="rp-dep-chips" id="rpDepFile-__SID__"></div>
+          <!-- func-kind dependency section (v2.0) -->
+          <div class="rp-fk-section" id="rpFkSec-__SID__" style="display:none">
+            <div class="rp-fk-row">
+              <div class="rp-fk-label">🔵 Function Calls (call)</div>
+              <div class="rp-fk-chips" id="rpFkCalls-__SID__"></div>
             </div>
-            <div class="rp-dep-row">
-              <div class="rp-dep-label">📤 Gọi đến (Callee)</div>
-              <div class="rp-dep-chips" id="rpDepCallees-__SID__"></div>
+            <div class="rp-fk-row">
+              <div class="rp-fk-label">🟢 Creates / Inits (create)</div>
+              <div class="rp-fk-chips" id="rpFkCreates-__SID__"></div>
             </div>
-            <div class="rp-dep-row">
-              <div class="rp-dep-label">📥 Được gọi bởi (Caller)</div>
-              <div class="rp-dep-chips" id="rpDepCallers-__SID__"></div>
+            <div class="rp-fk-row">
+              <div class="rp-fk-label">⬜ System / stdlib (system)</div>
+              <div class="rp-fk-chips" id="rpFkSystem-__SID__"></div>
+            </div>
+            <div style="border-top:1px solid var(--bd);margin-top:4px;padding-top:6px">
+              <div class="rp-fk-label" style="margin-bottom:3px">📥 Callers of this function</div>
+              <div class="rp-fk-chips" id="rpFkCallers-__SID__"></div>
             </div>
           </div>
         </div>
@@ -455,712 +527,517 @@ tbody tr.row-selected td:first-child{border-left:2px solid var(--blue)}
 'use strict';
 
 /* ════ STATE ════ */
-const fileStates = {};
-const cache      = {};
-let activePanel  = 'welcome';
-const POLL_MS          = 30000;
-const CG_RETRY_DELAY_MS = 12000;
-const CG_RETRY_MAX      = 10;
-const dirOpen = {};
-
-const $ = id => document.getElementById(id);
-const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-const ts  = () => new Date().toLocaleTimeString('ja-JP',{hour12:false});
-function serverUrl(){ return ($('srvUrl').value||'http://127.0.0.1:5005').replace(/\/$/,''); }
-function safeId(path){ return path.replace(/[^a-zA-Z0-9_-]/g,'_'); }
+const fileStates={};const cache={};let activePanel='welcome';
+const POLL_MS=30000,CG_RETRY_DELAY_MS=12000,CG_RETRY_MAX=10;
+const dirOpen={};const dbCachedFiles={};
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const ts=()=>new Date().toLocaleTimeString('ja-JP',{hour12:false});
+function serverUrl(){return ($('srvUrl').value||'http://127.0.0.1:5005').replace(/\/$/,'');}
+function safeId(path){return path.replace(/[^a-zA-Z0-9_-]/g,'_');}
 
 function getState(path){
-  if(!fileStates[path]) fileStates[path]={
-    srcLines:[], csLinesArr:[], patterns:[], csText:'',
-    reviews:{}, activeReviewId:null, sse:null, running:false, startTs:0,
-    hasDeps:false, depRetryTimer:null, depRetryCount:0,
+  if(!fileStates[path])fileStates[path]={
+    srcLines:[],csLinesArr:[],patterns:[],csText:'',
+    reviews:{},activeReviewId:null,sse:null,running:false,startTs:0,
+    hasDeps:false,depRetryTimer:null,depRetryCount:0,loadedFromDb:false,
   };
   return fileStates[path];
 }
 
 /* ════ SERVER ════ */
 async function pingServer(){
-  $('srvChip').textContent='⬤ 接続中…';
-  $('srvChip').className='chip chip-connecting';
+  $('srvChip').textContent='⬤ 接続中…';$('srvChip').className='chip chip-connecting';
   try{
     const r=await fetch(serverUrl()+'/health',{signal:AbortSignal.timeout(4000)});
     const d=await r.json();
-    $('srvChip').textContent='⬤ オンライン';
-    $('srvChip').className='chip chip-ok';
-    const modelShort=(d.model||'').replace('au.anthropic.','').replace('anthropic.','').replace('-v1:0','');
-    $('modelChip').textContent='⬤ '+modelShort;
+    $('srvChip').textContent='⬤ オンライン';$('srvChip').className='chip chip-ok';
+    const ms=(d.model||'').replace('au.anthropic.','').replace('anthropic.','').replace('-v1:0','');
+    $('modelChip').textContent='⬤ '+ms;
     const pool=d.key_pool||{};
     $('sbRegion').textContent=pool.region||d.region||'—';
-    $('sbStatus').textContent='オンライン'; $('sbStatus').className='sb-bedrock-val ok';
     $('sbCalls').textContent=pool.total_calls??0;
-    await loadFileList();
+    const neo=d.neo4j||{};updateNeo4jChip(neo.ok,neo.uri||neo.reason||'');
+    await loadFileList();await loadDbFileList();
   }catch(_){
-    $('srvChip').textContent='⬤ オフライン'; $('srvChip').className='chip chip-err';
-    $('modelChip').textContent='⬤ —';
-    $('sbStatus').textContent='オフライン'; $('sbStatus').className='sb-bedrock-val err';
-    $('fileTree').innerHTML=`<div style="padding:10px 8px;font-size:11px;color:var(--dim);line-height:2">
-      ⚠ サーバー未起動<br><code style="color:var(--yellow);font-size:10.5px">python server.py</code></div>`;
+    $('srvChip').textContent='⬤ オフライン';$('srvChip').className='chip chip-err';
+    $('modelChip').textContent='⬤ —';updateNeo4jChip(false,'offline');
+    $('fileTree').innerHTML=`<div style="padding:10px 8px;font-size:11px;color:var(--dim);line-height:2">⚠ サーバー未起動<br><code style="color:var(--yellow)">python server.py</code></div>`;
   }
 }
-
-let _flatFiles = [];
-
-async function loadFileList(){
-  const r=await fetch(serverUrl()+'/api/files');
-  const d=await r.json();
-  _flatFiles = d.flat || [];
-  renderTree(d.tree, d.flat || []);
-  $('btnCallGraph').disabled = _flatFiles.length === 0;
+function updateNeo4jChip(ok,detail){
+  const chip=$('neo4jChip');
+  if(ok){chip.textContent='🗄 Neo4j ✓';chip.className='chip chip-neo4j';chip.title='Neo4j接続済み: '+detail;$('sbNeo4j').textContent='接続済み';$('sbNeo4j').className='sb-bedrock-val neo';}
+  else{chip.textContent='🗄 Neo4j ✗';chip.className='chip chip-neo4j-err';chip.title='Neo4j未接続: '+detail;$('sbNeo4j').textContent='未接続';$('sbNeo4j').className='sb-bedrock-val err';}
 }
+function openNeo4jBrowser(){window.open('http://localhost:7474/browser/','_blank');}
 
-/* ════ TREE RENDERING ════ */
-function getFileIcon(ext){
-  if(ext==='.pc') return '🗃';
-  if(ext==='.h')  return '📋';
-  if(ext==='.pro') return '📦';
-  return '📄';
-}
-function getExtColor(ext){
-  if(ext==='.pc')  return 'color:var(--teal)';
-  if(ext==='.h')   return 'color:var(--purple)';
-  if(ext==='.pro') return 'color:var(--yellow)';
-  return '';
-}
-
-function renderTree(tree, flat){
-  const container = $('fileTree');
-  if(!tree || !tree.children || !tree.children.length){
-    container.innerHTML='<div style="padding:10px;font-size:11px;color:var(--dim)">tests/ にファイルなし</div>';
-    $('btnRunSel').disabled=true;
-    return;
-  }
-  container.innerHTML='';
-  renderTreeNode(tree, container, 0, '');
-  updateSelCount();
-}
-
-function renderTreeNode(node, parentEl, depth, parentPath){
-  if(node.type==='dir'){
-    if(depth===0 && node.path===''){
-      node.children.forEach(child => renderTreeNode(child, parentEl, depth, ''));
-      return;
+async function loadDbFileList(){
+  try{
+    const r=await fetch(serverUrl()+'/api/db/files');const d=await r.json();
+    (d.files||[]).forEach(f=>{dbCachedFiles[f.path]=f;});
+    $('sbDbFiles').textContent=d.count??'—';
+    const sr=await fetch(serverUrl()+'/api/db/stats');const stats=await sr.json();
+    if(stats.ok){
+      // v2.0: show call/create edge counts
+      const callE=stats.call_edges??'';const createE=stats.create_edges??'';
+      const extra=callE!==''?` ▸${callE}c/${createE}cr`:'';
+      $('dbStatsChip').textContent=`${stats.files}f · ${stats.patterns}p · ${stats.edges}e${extra}`;
     }
-    renderDirNode(node, parentEl, depth, parentPath);
-  } else {
-    renderFileNode(node, parentEl, depth);
-  }
+    reRenderDbBadges();
+  }catch(e){console.debug('[DB]',e.message);}
 }
-
-function renderDirNode(node, parentEl, depth, parentPath){
-  const dirPath = node.path;
-  if(dirOpen[dirPath] === undefined) dirOpen[dirPath] = true;
-
-  const wrapper = document.createElement('div');
-  wrapper.className = 'tree-dir-wrapper';
-
-  const row = document.createElement('div');
-  row.className = 'tree-dir';
-  row.id = 'dir-row-' + safeId(dirPath);
-  row.style.paddingLeft = (8 + depth * 14) + 'px';
-
-  const fileCount = countFiles(node);
-  const selCount  = countSelected(node);
-
-  row.innerHTML = `
-    <span class="dir-toggle ${dirOpen[dirPath]?'open':''}" id="dir-toggle-${safeId(dirPath)}">▶</span>
-    <span class="dir-icon">📁</span>
-    <span class="dir-label" title="${esc(dirPath)}">${esc(node.name)}</span>
-    <span class="dir-badge ${selCount>0?'has-sel':''}" id="dir-badge-${safeId(dirPath)}">${selCount>0?selCount+'/':' '}${fileCount}</span>`;
-
-  row.addEventListener('click', (e) => {
-    if(e.target.type==='checkbox') return;
-    toggleDir(dirPath);
+function reRenderDbBadges(){
+  Object.keys(dbCachedFiles).forEach(path=>{
+    const sid=safeId(path);const fr=$('fi-'+sid);if(!fr)return;
+    fr.classList.add('db-cached');
+    const b=$('fiBadge-'+sid);if(b&&!b.classList.contains('done')&&!b.classList.contains('busy')){b.className='fi-badge db';b.textContent='DB';}
   });
-
-  wrapper.appendChild(row);
-
-  const children = document.createElement('div');
-  children.className = 'tree-children' + (dirOpen[dirPath]?'':' collapsed');
-  children.id = 'dir-children-' + safeId(dirPath);
-  if(dirOpen[dirPath]) children.style.maxHeight = '99999px';
-
-  node.children.forEach(child => renderTreeNode(child, children, depth+1, dirPath));
-  wrapper.appendChild(children);
-  parentEl.appendChild(wrapper);
+}
+async function loadFromDb(path){
+  const sid=safeId(path);const st=getState(path);
+  addLog(sid,'🗄 Neo4j DB からロード中…','l-db');setFStatus(sid,'DBロード中…','db');
+  try{
+    const r=await fetch(`${serverUrl()}/api/db/file?name=${encodeURIComponent(path)}`);
+    if(!r.ok)throw new Error(`DB not found: ${r.status}`);
+    const d=await r.json();if(d.error)throw new Error(d.error);
+    st.patterns=d.patterns||[];st.csText=d.cs_text||'';st.csLinesArr=st.csText.split('\n');st.loadedFromDb=true;
+    const fname=path.split('/').pop();
+    renderCodeLines('csLines-'+sid,st.csLinesArr);
+    const csName=fname.replace(/\.(c|pc|h)$/i,'_migrated.cs');
+    $('csFname-'+sid).textContent=csName;$('csMeta-'+sid).textContent=st.csText.length.toLocaleString()+' 文字';
+    if(st.csText)$('btnDlCs-'+sid).style.display='inline-block';
+    if(st.patterns.length){renderCSV(path,st.patterns);$('csvBadge-'+sid).textContent=st.patterns.length;$('csvBadge-'+sid).className='badge has';$('btnDlCsv-'+sid).style.display='inline-block';showTable(sid);refreshReviewBadge(path);updateMapStatus(path);}
+    for(let i=0;i<=5;i++)agSet(i,sid,'db');
+    const upd=d.updated_at?new Date(d.updated_at).toLocaleString('ja-JP',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
+    $('fElapsed-'+sid).textContent=`DB ${upd}`;
+    addLog(sid,`✅ DBロード完了 — ${st.patterns.length} パターン`,'l-db');
+    setFStatus(sid,`🗄 DB済み · ${st.patterns.length} パターン`,'db');setTabDot(sid,'db');setBadge(path,'done','✓');
+    const sb=$('fSrcBadge-'+sid);if(sb){sb.className='f-src-badge from-db';sb.textContent='🗄 From DB';sb.style.display='inline-block';}
+    const db=$('btnDbDel-'+sid);if(db)db.style.display='inline-block';
+    return true;
+  }catch(e){addLog(sid,`ℹ DBなし — ▶ 実行してマイグレーション`,'l-sub');setFStatus(sid,'準備完了');return false;}
+}
+async function deleteFromDb(path){
+  if(!confirm(`DBから削除しますか？\n${path}`))return;
+  const sid=safeId(path);
+  try{
+    const r=await fetch(`${serverUrl()}/api/db/file?name=${encodeURIComponent(path)}`,{method:'DELETE'});
+    const d=await r.json();
+    if(d.ok){delete dbCachedFiles[path];addLog(sid,'🗑 DBから削除しました','l-warn');setFStatus(sid,'DB削除済み');for(let i=0;i<=5;i++)agSet(i,sid,'');setBadge(path,'','?');const db=$('btnDbDel-'+sid);if(db)db.style.display='none';const sb=$('fSrcBadge-'+sid);if(sb)sb.style.display='none';const fr=$('fi-'+sid);if(fr)fr.classList.remove('db-cached');await loadDbFileList();}
+  }catch(e){alert('削除エラー: '+e.message);}
 }
 
-function renderFileNode(node, parentEl, depth){
-  const path = node.path;
-  const sid  = safeId(path);
-  const st   = getState(path);
-  const c    = cache[path];
-
-  let badgeCls='', badgeTxt=node.ext.replace('.','').toUpperCase();
-  if(c){ badgeCls='done'; badgeTxt='✓'; }
-  else if(st.running){ badgeCls='busy'; badgeTxt='⟳'; }
-
-  const isHeader = node.ext === '.h';
-  const row = document.createElement('div');
-  row.className = 'tree-file';
-  row.id = 'fi-' + sid;
-  row.style.paddingLeft = (depth * 14) + 'px';
-  row.innerHTML = `
-    <input type="checkbox" class="fi-cb" id="cb-${sid}"
-      ${isHeader?'disabled title=".h ファイルは移行対象外"':''}
-      onchange="onCheckChange()" onclick="e=>e.stopPropagation()">
-    <span class="fi-icon" style="${getExtColor(node.ext)}">${getFileIcon(node.ext)}</span>
-    <span class="fi-name" title="${esc(path)}" style="${isHeader?'color:var(--dim)':''}">${esc(node.name)}</span>
-    <span class="fi-badge ${badgeCls}" id="fiBadge-${sid}">${badgeTxt}</span>`;
-
-  row.querySelector('.fi-name').addEventListener('click', () => openFileView(path));
-  row.querySelector('.fi-icon').addEventListener('click', () => openFileView(path));
-  parentEl.appendChild(row);
+let _flatFiles=[];
+async function loadFileList(){
+  const r=await fetch(serverUrl()+'/api/files');const d=await r.json();
+  _flatFiles=d.flat||[];renderTree(d.tree,d.flat||[]);
+  $('btnCallGraph').disabled=_flatFiles.length===0;
 }
 
-function toggleDir(dirPath){
-  dirOpen[dirPath] = !dirOpen[dirPath];
-  const toggle   = $('dir-toggle-' + safeId(dirPath));
-  const children = $('dir-children-' + safeId(dirPath));
-  if(!toggle || !children) return;
-  if(dirOpen[dirPath]){
-    toggle.classList.add('open');
-    children.classList.remove('collapsed');
-    children.style.maxHeight = '99999px';
-  } else {
-    toggle.classList.remove('open');
-    children.style.maxHeight = children.scrollHeight + 'px';
-    requestAnimationFrame(()=>{ children.classList.add('collapsed'); });
-  }
+/* ════ TREE ════ */
+function getFileIcon(ext){if(ext==='.pc')return'🗃';if(ext==='.h')return'📋';if(ext==='.pro')return'📦';return'📄';}
+function getExtColor(ext){if(ext==='.pc')return'color:var(--teal)';if(ext==='.h')return'color:var(--purple)';if(ext==='.pro')return'color:var(--yellow)';return'';}
+function renderTree(tree,flat){
+  const c=$('fileTree');
+  if(!tree||!tree.children||!tree.children.length){c.innerHTML='<div style="padding:10px;font-size:11px;color:var(--dim)">tests/ にファイルなし</div>';$('btnRunSel').disabled=true;return;}
+  c.innerHTML='';renderTreeNode(tree,c,0,'');updateSelCount();reRenderDbBadges();
 }
-
-function countFiles(node){
-  if(node.type==='file') return 1;
-  return (node.children||[]).reduce((s,c)=>s+countFiles(c), 0);
+function renderTreeNode(node,pe,d,pp){
+  if(node.type==='dir'){if(d===0&&node.path===''){node.children.forEach(c=>renderTreeNode(c,pe,d,''));return;}renderDirNode(node,pe,d,pp);}
+  else renderFileNode(node,pe,d);
 }
-function countSelected(node){
-  if(node.type==='file'){
-    const cb = $('cb-' + safeId(node.path));
-    return cb && cb.checked ? 1 : 0;
-  }
-  return (node.children||[]).reduce((s,c)=>s+countSelected(c), 0);
+function renderDirNode(node,pe,depth,pp){
+  const dp=node.path;if(dirOpen[dp]===undefined)dirOpen[dp]=true;
+  const w=document.createElement('div');w.className='tree-dir-wrapper';
+  const row=document.createElement('div');row.className='tree-dir';row.id='dir-row-'+safeId(dp);row.style.paddingLeft=(8+depth*14)+'px';
+  const fc=countFiles(node),sc=countSelected(node);
+  row.innerHTML=`<span class="dir-toggle ${dirOpen[dp]?'open':''}" id="dir-toggle-${safeId(dp)}">▶</span><span class="dir-icon">📁</span><span class="dir-label" title="${esc(dp)}">${esc(node.name)}</span><span class="dir-badge ${sc>0?'has-sel':''}" id="dir-badge-${safeId(dp)}">${sc>0?sc+'/':' '}${fc}</span>`;
+  row.addEventListener('click',e=>{if(e.target.type==='checkbox')return;toggleDir(dp);});
+  w.appendChild(row);
+  const ch=document.createElement('div');ch.className='tree-children'+(dirOpen[dp]?'':' collapsed');ch.id='dir-children-'+safeId(dp);
+  if(dirOpen[dp])ch.style.maxHeight='99999px';
+  node.children.forEach(c=>renderTreeNode(c,ch,depth+1,dp));
+  w.appendChild(ch);pe.appendChild(w);
 }
+function renderFileNode(node,pe,depth){
+  const path=node.path,sid=safeId(path),st=getState(path),c=cache[path],isDb=!!dbCachedFiles[path];
+  let bcls='',btxt=node.ext.replace('.','').toUpperCase();
+  if(c){bcls='done';btxt='✓';}else if(st.running){bcls='busy';btxt='⟳';}else if(isDb){bcls='db';btxt='DB';}
+  const isH=node.ext==='.h';
+  const row=document.createElement('div');row.className='tree-file'+(isDb?' db-cached':'');row.id='fi-'+sid;row.style.paddingLeft=(depth*14)+'px';
+  row.innerHTML=`<input type="checkbox" class="fi-cb" id="cb-${sid}" ${isH?'disabled title=".h ファイルは移行対象外"':''} onchange="onCheckChange()" onclick="e=>e.stopPropagation()"><span class="fi-icon" style="${getExtColor(node.ext)}">${getFileIcon(node.ext)}</span><span class="fi-name" title="${esc(path)}" style="${isH?'color:var(--dim)':''}">${esc(node.name)}</span><span class="fi-badge ${bcls}" id="fiBadge-${sid}">${btxt}</span>`;
+  row.querySelector('.fi-name').addEventListener('click',()=>openFileView(path));
+  row.querySelector('.fi-icon').addEventListener('click',()=>openFileView(path));
+  pe.appendChild(row);
+}
+function toggleDir(dp){
+  dirOpen[dp]=!dirOpen[dp];const t=$('dir-toggle-'+safeId(dp)),c=$('dir-children-'+safeId(dp));if(!t||!c)return;
+  if(dirOpen[dp]){t.classList.add('open');c.classList.remove('collapsed');c.style.maxHeight='99999px';}
+  else{t.classList.remove('open');c.style.maxHeight=c.scrollHeight+'px';requestAnimationFrame(()=>{c.classList.add('collapsed');});}
+}
+function countFiles(n){if(n.type==='file')return 1;return(n.children||[]).reduce((s,c)=>s+countFiles(c),0);}
+function countSelected(n){if(n.type==='file'){const cb=$('cb-'+safeId(n.path));return cb&&cb.checked?1:0;}return(n.children||[]).reduce((s,c)=>s+countSelected(c),0);}
 
 /* ════ SEARCH ════ */
-let _searchQuery = '';
-function onSearch(q){
-  _searchQuery = q.toLowerCase().trim();
-  const container = $('fileTree');
-  container.innerHTML = '';
-  _renderFilteredFlat(_searchQuery);
-}
+function onSearch(q){_searchQuery=q.toLowerCase().trim();$('fileTree').innerHTML='';_renderFilteredFlat(_searchQuery);}
+let _searchQuery='';
 function _renderFilteredFlat(q){
-  const container = $('fileTree');
-  if(!q){ loadFileList(); return; }
-  const matches = _flatFiles.filter(f => f.name.toLowerCase().includes(q) || f.path.toLowerCase().includes(q));
-  if(!matches.length){
-    container.innerHTML='<div style="padding:10px;font-size:11px;color:var(--dim)">一致なし</div>';
-    return;
-  }
-  container.innerHTML='';
-  matches.forEach(f => {
-    const sid  = safeId(f.path);
-    const st   = getState(f.path);
-    const c    = cache[f.path];
-    let badgeCls='', badgeTxt=f.ext.replace('.','').toUpperCase();
-    if(c){ badgeCls='done'; badgeTxt='✓'; }
-    else if(st.running){ badgeCls='busy'; badgeTxt='⟳'; }
-    const isHeader = f.ext === '.h';
-    const row = document.createElement('div');
-    row.className = 'tree-file';
-    row.id = 'fi-' + sid;
-    row.style.paddingLeft = '8px';
-    row.innerHTML = `
-      <input type="checkbox" class="fi-cb" id="cb-${sid}" ${isHeader?'disabled':''} onchange="onCheckChange()" onclick="e=>e.stopPropagation()">
-      <span class="fi-icon" style="${getExtColor(f.ext)}">${getFileIcon(f.ext)}</span>
-      <span class="fi-name" title="${esc(f.path)}">${esc(f.path)}</span>
-      <span class="fi-badge ${badgeCls}" id="fiBadge-${sid}">${badgeTxt}</span>`;
-    row.querySelector('.fi-name').addEventListener('click', () => openFileView(f.path));
-    container.appendChild(row);
+  const c=$('fileTree');if(!q){loadFileList();return;}
+  const ms=_flatFiles.filter(f=>f.name.toLowerCase().includes(q)||f.path.toLowerCase().includes(q));
+  if(!ms.length){c.innerHTML='<div style="padding:10px;font-size:11px;color:var(--dim)">一致なし</div>';return;}
+  c.innerHTML='';ms.forEach(f=>{
+    const sid=safeId(f.path),st=getState(f.path),cv=cache[f.path],isDb=!!dbCachedFiles[f.path];
+    let bcls='',btxt=f.ext.replace('.','').toUpperCase();
+    if(cv){bcls='done';btxt='✓';}else if(st.running){bcls='busy';btxt='⟳';}else if(isDb){bcls='db';btxt='DB';}
+    const isH=f.ext==='.h';const row=document.createElement('div');row.className='tree-file'+(isDb?' db-cached':'');row.id='fi-'+sid;row.style.paddingLeft='8px';
+    row.innerHTML=`<input type="checkbox" class="fi-cb" id="cb-${sid}" ${isH?'disabled':''} onchange="onCheckChange()" onclick="e=>e.stopPropagation()"><span class="fi-icon" style="${getExtColor(f.ext)}">${getFileIcon(f.ext)}</span><span class="fi-name" title="${esc(f.path)}">${esc(f.path)}</span><span class="fi-badge ${bcls}" id="fiBadge-${sid}">${btxt}</span>`;
+    row.querySelector('.fi-name').addEventListener('click',()=>openFileView(f.path));c.appendChild(row);
   });
 }
 
-/* ════ CHECK / SELECT ════ */
+/* ════ CHECK ════ */
 function onCheckChange(){
-  const checked = document.querySelectorAll('.fi-cb:not(:disabled):checked').length;
-  const total   = document.querySelectorAll('.fi-cb:not(:disabled)').length;
-  $('selCount').textContent = checked ? `${checked}/${total} 選択` : '';
-  $('btnRunSel').disabled   = checked === 0;
-  const btn = document.querySelector('.btn-sel-all');
-  if(btn) btn.textContent = checked===total && total>0 ? '全解除' : '全選択';
+  const ck=document.querySelectorAll('.fi-cb:not(:disabled):checked').length;
+  const tot=document.querySelectorAll('.fi-cb:not(:disabled)').length;
+  $('selCount').textContent=ck?`${ck}/${tot} 選択`:'';$('btnRunSel').disabled=ck===0;
+  const btn=document.querySelector('.btn-sel-all');if(btn)btn.textContent=ck===tot&&tot>0?'全解除':'全選択';
   updateDirBadges();
 }
 function updateDirBadges(){
-  const seenDirs = new Set();
-  _flatFiles.forEach(f => {
-    const parts = f.path.split('/');
-    if(parts.length > 1) seenDirs.add(parts.slice(0,-1).join('/'));
-  });
-  seenDirs.forEach(dirPath => {
-    const badge = $('dir-badge-' + safeId(dirPath));
-    if(!badge) return;
-    const inDir  = _flatFiles.filter(f => f.path.startsWith(dirPath + '/'));
-    const selCnt = inDir.filter(f => { const cb=$('cb-'+safeId(f.path)); return cb&&cb.checked; }).length;
-    const total  = inDir.length;
-    badge.className = 'dir-badge' + (selCnt>0?' has-sel':'');
-    badge.textContent = selCnt>0 ? `${selCnt}/${total}` : String(total);
-  });
+  const seen=new Set();_flatFiles.forEach(f=>{const p=f.path.split('/');if(p.length>1)seen.add(p.slice(0,-1).join('/'));});
+  seen.forEach(dp=>{const b=$('dir-badge-'+safeId(dp));if(!b)return;const inD=_flatFiles.filter(f=>f.path.startsWith(dp+'/'));const sc=inD.filter(f=>{const cb=$('cb-'+safeId(f.path));return cb&&cb.checked;}).length;const tot=inD.length;b.className='dir-badge'+(sc>0?' has-sel':'');b.textContent=sc>0?`${sc}/${tot}`:String(tot);});
 }
-function updateSelCount(){ onCheckChange(); }
-function toggleSelectAll(){
-  const cbs = [...document.querySelectorAll('.fi-cb:not(:disabled)')];
-  const allChecked = cbs.every(c => c.checked);
-  cbs.forEach(c => c.checked = !allChecked);
-  onCheckChange();
-}
+function updateSelCount(){onCheckChange();}
+function toggleSelectAll(){const cbs=[...document.querySelectorAll('.fi-cb:not(:disabled)')];const all=cbs.every(c=>c.checked);cbs.forEach(c=>c.checked=!all);onCheckChange();}
 
-/* ════ PANEL MANAGEMENT ════ */
+/* ════ PANEL ════ */
 function openFileView(path){
-  const sid = safeId(path);
-  if(!$('panel-' + sid)){
-    createPanel(path);
-    loadSourceIntoPanel(path);
-    if(cache[path]) restoreCache(path);
-  }
-  switchToPanel(sid);
-  document.querySelectorAll('.tree-file').forEach(el => el.classList.remove('active-view'));
-  $('fi-' + sid)?.classList.add('active-view');
+  const sid=safeId(path);
+  if(!$('panel-'+sid)){createPanel(path);loadSourceIntoPanel(path);if(dbCachedFiles[path])loadFromDb(path);else if(cache[path])restoreCache(path);}
+  switchToPanel(sid);document.querySelectorAll('.tree-file').forEach(el=>el.classList.remove('active-view'));$('fi-'+sid)?.classList.add('active-view');
 }
-function switchToPanel(sid){
-  document.querySelectorAll('.view-panel').forEach(p => p.classList.remove('active'));
-  $('panel-' + sid)?.classList.add('active');
-  activePanel = sid;
-  document.querySelectorAll('.view-tab').forEach(t => t.classList.remove('active'));
-  $('tab-' + sid)?.classList.add('active');
-}
+function switchToPanel(sid){document.querySelectorAll('.view-panel').forEach(p=>p.classList.remove('active'));$('panel-'+sid)?.classList.add('active');activePanel=sid;document.querySelectorAll('.view-tab').forEach(t=>t.classList.remove('active'));$('tab-'+sid)?.classList.add('active');}
 function createPanel(path){
-  const sid   = safeId(path);
-  const fname = path.split('/').pop();
-  const tpl   = $('panelTpl');
-  const clone = tpl.content.cloneNode(true);
-  clone.querySelectorAll('[id]').forEach(el => { el.id = el.id.replace(/__SID__/g, sid); });
-  clone.querySelectorAll('[onclick]').forEach(el => {
-    const v = el.getAttribute('onclick')
-      .replace(/__PATH__/g, path.replace(/'/g,"\\'"))
-      .replace(/__SID__/g, sid);
-    el.setAttribute('onclick', v);
-  });
-  clone.querySelectorAll('[id^="srcName-"]').forEach(el => {
-    if(el.id === 'srcName-' + sid) el.textContent = fname;
-  });
-  const panel = clone.querySelector('.view-panel');
-  panel.id = 'panel-' + sid;
-  $('viewPanels').appendChild(clone);
-  createTab(path, sid, fname);
-  setupResize(sid);
+  const sid=safeId(path),fname=path.split('/').pop();
+  const tpl=$('panelTpl'),clone=tpl.content.cloneNode(true);
+  clone.querySelectorAll('[id]').forEach(el=>{el.id=el.id.replace(/__SID__/g,sid);});
+  clone.querySelectorAll('[onclick]').forEach(el=>{const v=el.getAttribute('onclick').replace(/__PATH__/g,path.replace(/'/g,"\\'")).replace(/__SID__/g,sid);el.setAttribute('onclick',v);});
+  clone.querySelectorAll('[id^="srcName-"]').forEach(el=>{if(el.id==='srcName-'+sid)el.textContent=fname;});
+  const panel=clone.querySelector('.view-panel');panel.id='panel-'+sid;
+  $('viewPanels').appendChild(clone);createTab(path,sid,fname);setupResize(sid);
 }
-function createTab(path, sid, fname){
-  $('tabBarEmpty')?.remove();
-  const tab = document.createElement('div');
-  tab.className = 'view-tab';
-  tab.id = 'tab-' + sid;
-  tab.onclick = () => switchToPanel(sid);
-  tab.innerHTML = `<span class="tab-dot dot-idle" id="tabDot-${sid}"></span>
-    <span title="${esc(path)}">${esc(fname)}</span>
-    <span class="tab-close" onclick="closePanel('${path.replace(/'/g,"\\'")}',event)">✕</span>`;
+function createTab(path,sid,fname){
+  $('tabBarEmpty')?.remove();const tab=document.createElement('div');tab.className='view-tab';tab.id='tab-'+sid;tab.onclick=()=>switchToPanel(sid);
+  tab.innerHTML=`<span class="tab-dot dot-idle" id="tabDot-${sid}"></span><span title="${esc(path)}">${esc(fname)}</span><span class="tab-close" onclick="closePanel('${path.replace(/'/g,"\\'")}',event)">✕</span>`;
   $('tabBar').appendChild(tab);
 }
-function closePanel(path, e){
-  e.stopPropagation();
-  const sid = safeId(path);
-  const st  = getState(path);
-  if(st.sse){ st.sse.close(); st.sse=null; }
-  if(st.depRetryTimer){ clearTimeout(st.depRetryTimer); st.depRetryTimer=null; }
-  $('panel-' + sid)?.remove();
-  $('tab-'   + sid)?.remove();
-  delete fileStates[path];
-  if(activePanel === sid){
-    const remaining = document.querySelectorAll('.view-tab');
-    if(remaining.length > 0) remaining[remaining.length-1].click();
-    else {
-      if(!$('panel-welcome')){
-        const wp = document.createElement('div');
-        wp.className='view-panel active'; wp.id='panel-welcome';
-        wp.innerHTML=`<div class="welcome-panel"><div class="welcome-title">ファイルを選択してください</div></div>`;
-        $('viewPanels').appendChild(wp);
-      } else { switchToPanel('welcome'); }
-      $('tabBar').innerHTML='<div class="tab-bar-empty" id="tabBarEmpty">← ファイルを選択して開く</div>';
-      activePanel='welcome';
-    }
-  }
+function closePanel(path,e){
+  e.stopPropagation();const sid=safeId(path),st=getState(path);
+  if(st.sse){st.sse.close();st.sse=null;}if(st.depRetryTimer){clearTimeout(st.depRetryTimer);st.depRetryTimer=null;}
+  $('panel-'+sid)?.remove();$('tab-'+sid)?.remove();delete fileStates[path];
+  if(activePanel===sid){const rem=document.querySelectorAll('.view-tab');if(rem.length>0)rem[rem.length-1].click();else{switchToPanel('welcome');$('tabBar').innerHTML='<div class="tab-bar-empty" id="tabBarEmpty">← ファイルを選択して開く</div>';activePanel='welcome';}}
 }
 async function loadSourceIntoPanel(path){
-  const sid = safeId(path);
-  try{
-    const r = await fetch(`${serverUrl()}/api/file?name=${encodeURIComponent(path)}`);
-    const d = await r.json();
-    if(d.error) throw new Error(d.error);
-    const st = getState(path);
-    st.srcLines = d.content.split('\n');
-    renderCodeLines('srcLines-' + sid, st.srcLines);
-    $('srcMeta-' + sid).textContent = `${st.srcLines.length}行 · ${(d.size/1024).toFixed(1)}KB`;
-  }catch(e){
-    const el = $('srcLines-' + sid);
-    if(el) el.innerHTML = `<div style="padding:12px;color:var(--red)">エラー: ${esc(e.message)}</div>`;
-  }
+  const sid=safeId(path);
+  try{const r=await fetch(`${serverUrl()}/api/file?name=${encodeURIComponent(path)}`);const d=await r.json();if(d.error)throw new Error(d.error);const st=getState(path);st.srcLines=d.content.split('\n');renderCodeLines('srcLines-'+sid,st.srcLines);$('srcMeta-'+sid).textContent=`${st.srcLines.length}行 · ${(d.size/1024).toFixed(1)}KB`;}
+  catch(e){const el=$('srcLines-'+sid);if(el)el.innerHTML=`<div style="padding:12px;color:var(--red)">エラー: ${esc(e.message)}</div>`;}
 }
 
-/* ════ RUN SELECTED ════ */
-function runSelected(){
-  const checked = [...document.querySelectorAll('.fi-cb:not(:disabled):checked')];
-  if(!checked.length) return;
-  checked.forEach(cb => {
-    const row  = cb.closest('.tree-file');
-    if(!row) return;
-    const name = row.querySelector('.fi-name')?.getAttribute('title') ||
-                 row.querySelector('.fi-name')?.textContent;
-    if(name){ openFileView(name); startOne(name); }
-  });
-}
+/* ════ RUN ════ */
+function runSelected(){const ck=[...document.querySelectorAll('.fi-cb:not(:disabled):checked')];if(!ck.length)return;ck.forEach(cb=>{const row=cb.closest('.tree-file');if(!row)return;const name=row.querySelector('.fi-name')?.getAttribute('title')||row.querySelector('.fi-name')?.textContent;if(name){openFileView(name);startOne(name);}});}
 
-/* ════ PIPELINE ════ */
 function startOne(path){
-  const sid = safeId(path);
-  const st  = getState(path);
-  if(st.running) return;
-  st.running=true; st.startTs=Date.now(); st.reviews={};
-  st.hasDeps=false; st.depRetryCount=0;
-  if(st.depRetryTimer){ clearTimeout(st.depRetryTimer); st.depRetryTimer=null; }
-  setTabDot(sid,'run'); setBadge(path,'busy','⟳');
-  $('btnRun-'+sid).disabled=true;
-  $('btnCancel-'+sid).style.display='inline-block';
-  $('fElapsed-'+sid).textContent='';
-  setFStatus(sid,'実行中…','run');
-  showLog(sid);
-  for(let i=0;i<=5;i++) agSet(i,sid,'');
-  const csEl=$('csLines-'+sid);
-  if(csEl) csEl.innerHTML='<div style="padding:12px 14px;color:var(--dim)">// 生成中…</div>';
+  const sid=safeId(path),st=getState(path);if(st.running)return;
+  st.running=true;st.startTs=Date.now();st.reviews={};st.hasDeps=false;st.depRetryCount=0;st.loadedFromDb=false;
+  if(st.depRetryTimer){clearTimeout(st.depRetryTimer);st.depRetryTimer=null;}
+  setTabDot(sid,'run');setBadge(path,'busy','⟳');$('btnRun-'+sid).disabled=true;$('btnCancel-'+sid).style.display='inline-block';
+  $('fElapsed-'+sid).textContent='';setFStatus(sid,'実行中…','run');showLog(sid);
+  for(let i=0;i<=5;i++)agSet(i,sid,'');
+  const csEl=$('csLines-'+sid);if(csEl)csEl.innerHTML='<div style="padding:12px 14px;color:var(--dim)">// 生成中…</div>';
+  const sb=$('fSrcBadge-'+sid);if(sb)sb.style.display='none';
   addLog(sid,`▶ 開始: ${path}`,'l-step');
-  if(st.sse){ st.sse.close(); }
-  const url=`${serverUrl()}/api/migrate?name=${encodeURIComponent(path)}`;
-  const sse=new EventSource(url);
-  st.sse=sse;
-  // ── Mỗi SSE connection nhận event từ queue riêng của file đó (server v5.3) ──
-  sse.onmessage=ev=>{
-    let event; try{event=JSON.parse(ev.data);}catch(_){addLog(sid,'⚠ '+ev.data,'l-warn');return;}
-    handleEvent(path,event);
-  };
-  sse.onerror=()=>{
-    if(!st.running) return;
-    addLog(sid,'❌ SSE 接続が切断されました','l-err');
-    setFStatus(sid,'接続エラー','err');
-    finishOne(path,false);
-  };
+  if(st.sse)st.sse.close();
+  const sse=new EventSource(`${serverUrl()}/api/migrate?name=${encodeURIComponent(path)}`);st.sse=sse;
+  sse.onmessage=ev=>{let ev2;try{ev2=JSON.parse(ev.data);}catch(_){addLog(sid,'⚠ '+ev.data,'l-warn');return;}handleEvent(path,ev2);};
+  sse.onerror=()=>{if(!st.running)return;addLog(sid,'❌ SSE 接続が切断されました','l-err');setFStatus(sid,'接続エラー','err');finishOne(path,false);};
 }
-function cancelOne(path){
-  const sid=safeId(path); const st=getState(path);
-  if(st.sse){ st.sse.close(); st.sse=null; }
-  addLog(sid,'⚠ キャンセルされました','l-warn');
-  setFStatus(sid,'キャンセル');
-  finishOne(path,false);
-}
-function handleEvent(path, ev){
-  const sid=safeId(path); const st=getState(path);
+function cancelOne(path){const sid=safeId(path),st=getState(path);if(st.sse){st.sse.close();st.sse=null;}addLog(sid,'⚠ キャンセルされました','l-warn');setFStatus(sid,'キャンセル');finishOne(path,false);}
+
+function handleEvent(path,ev){
+  const sid=safeId(path),st=getState(path);
   switch(ev.type){
-    case 'step':
-      agsDone(sid,ev.step);
-      addLog(sid,`▶ ステップ ${ev.step}/5 — ${ev.label}`,'l-step');
-      setFStatus(sid,`Step ${ev.step}/5: ${ev.label}`,'run');
-      break;
+    case 'step':agsDone(sid,ev.step);addLog(sid,`▶ ステップ ${ev.step}/5 — ${ev.label}`,'l-step');setFStatus(sid,`Step ${ev.step}/5: ${ev.label}`,'run');break;
     case 'log':{
-      const m=ev.msg||'';
-      if(!/\[Agent\d\]|WARNING|ERROR|✓|Batch \d|patterns|Generated|Written|Chunk|Extracted|Done|Translat|Classif|Saved/.test(m)) break;
-      const cls=ev.level==='error'?'l-err':ev.level==='warn'?'l-warn':m.startsWith('  [Agent')?'l-sub':'';
-      addLog(sid,m,cls); break;
+      const m=ev.msg||'',tag=ev.tag||'';
+      if(tag==='misc'&&!/Step|Pipeline|pattern|extract|classif|translat/i.test(m))break;
+      let cls='';
+      if(ev.level==='error')cls='l-err';else if(ev.level==='warn')cls='l-warn';
+      else if(tag==='batch_ok')cls='l-ok';else if(tag==='api'||tag==='agent')cls='l-sub';
+      else if(tag==='pipeline')cls='l-step';else if(tag==='db'||tag==='callgraph')cls='l-db';
+      addLog(sid,m,cls);break;
     }
     case 'done':{
-      st.sse.close(); st.sse=null;
-      st.patterns=ev.patterns||[];
-      for(let i=0;i<=5;i++) agSet(i,sid,'done');
-      const fname = path.split('/').pop();
-      fetch(`${serverUrl()}/api/output?name=${encodeURIComponent(path)}`)
-        .then(r=>r.text()).then(cs=>{
-          st.csText=cs; st.csLinesArr=cs.split('\n');
-          renderCodeLines('csLines-'+sid,st.csLinesArr);
-          const csName=fname.replace(/\.(c|pc|h)$/i,'_migrated.cs');
-          $('csFname-'+sid).textContent=csName;
-          $('csMeta-'+sid).textContent=cs.length.toLocaleString()+' 文字';
-          $('btnDlCs-'+sid).style.display='inline-block';
-          $('btnDlCsv-'+sid).style.display='inline-block';
-          renderCSV(path,st.patterns);
-          $('csvBadge-'+sid).textContent=st.patterns.length;
-          $('csvBadge-'+sid).className='badge has';
-          cache[path]={patterns:st.patterns,cs:cs};
-          const elapsed=((Date.now()-st.startTs)/1000).toFixed(1);
-          $('fElapsed-'+sid).textContent=`✓ ${elapsed}s`;
-          addLog(sid,`✅ 完了 — ${st.patterns.length} パターン · ${elapsed}s`,'l-ok');
-          setFStatus(sid,`✓ ${st.patterns.length} パターン · ${elapsed}s`,'ok');
-          setBadge(path,'done','✓'); setTabDot(sid,'done');
-          refreshReviewBadge(path); finishOne(path,true); showTable(sid);
-          loadFileList(); pingServer();
-          setDepBadgePending(sid);
-          loadDependencies(path,0);
-        }).catch(e=>{
-          addLog(sid,`⚠ .cs 取得エラー: ${e.message}`,'l-warn');
-          renderCSV(path,st.patterns); finishOne(path,true); showTable(sid);
-        });
+      st.sse.close();st.sse=null;st.patterns=ev.patterns||[];
+      for(let i=0;i<=5;i++)agSet(i,sid,i===4?'nollm':'done');
+      const fname=path.split('/').pop();
+      fetch(`${serverUrl()}/api/output?name=${encodeURIComponent(path)}`).then(r=>r.text()).then(cs=>{
+        st.csText=cs;st.csLinesArr=cs.split('\n');
+        renderCodeLines('csLines-'+sid,st.csLinesArr);
+        const csName=fname.replace(/\.(c|pc|h)$/i,'_migrated.cs');
+        $('csFname-'+sid).textContent=csName;$('csMeta-'+sid).textContent=cs.length.toLocaleString()+' 文字';
+        $('btnDlCs-'+sid).style.display='inline-block';$('btnDlCsv-'+sid).style.display='inline-block';
+        renderCSV(path,st.patterns);$('csvBadge-'+sid).textContent=st.patterns.length;$('csvBadge-'+sid).className='badge has';
+        cache[path]={patterns:st.patterns,cs};
+        const elapsed=((Date.now()-st.startTs)/1000).toFixed(1);
+        $('fElapsed-'+sid).textContent=`✓ ${elapsed}s`;
+        addLog(sid,`✅ 完了 — ${st.patterns.length} パターン · ${elapsed}s`,'l-ok');
+        setFStatus(sid,`✓ ${st.patterns.length} パターン · ${elapsed}s`,'ok');
+        setBadge(path,'done','✓');setTabDot(sid,'done');
+        updateMapStatus(path);
+        const sb=$('fSrcBadge-'+sid);if(sb){sb.className='f-src-badge from-run';sb.textContent='▶ 実行済み';sb.style.display='inline-block';}
+        refreshReviewBadge(path);finishOne(path,true);showTable(sid);loadFileList();pingServer();
+        setTimeout(async()=>{await loadDbFileList();dbCachedFiles[path]={path,pattern_count:st.patterns.length};reRenderDbBadges();const db=$('btnDbDel-'+sid);if(db)db.style.display='inline-block';},2000);
+        loadDependencies(path,0);
+      }).catch(e=>{addLog(sid,`⚠ .cs 取得エラー: ${e.message}`,'l-warn');renderCSV(path,st.patterns);finishOne(path,true);showTable(sid);});
       break;
     }
-    case 'error':{
-      st.sse.close(); st.sse=null;
-      addLog(sid,`❌ ${ev.msg}`,'l-err');
-      if(ev.trace) addLog(sid,ev.trace.split('\n').slice(-3).join(' '),'l-err');
-      setFStatus(sid,'パイプラインエラー','err');
-      setBadge(path,'err','✗'); setTabDot(sid,'err');
-      finishOne(path,false); break;
-    }
+    case 'error':{st.sse.close();st.sse=null;addLog(sid,`❌ ${ev.msg}`,'l-err');if(ev.trace)addLog(sid,ev.trace.split('\n').slice(-3).join(' '),'l-err');setFStatus(sid,'パイプラインエラー','err');setBadge(path,'err','✗');setTabDot(sid,'err');finishOne(path,false);break;}
   }
 }
-function finishOne(path,ok){
-  const sid=safeId(path); const st=getState(path);
-  st.running=false; st.sse=null;
-  $('btnRun-'+sid).disabled=false;
-  $('btnCancel-'+sid).style.display='none';
-  if(!ok && !($('fiBadge-'+safeId(path))?.classList.contains('done'))) setTabDot(sid,'err');
-}
+function finishOne(path,ok){const sid=safeId(path),st=getState(path);st.running=false;st.sse=null;$('btnRun-'+sid).disabled=false;$('btnCancel-'+sid).style.display='none';if(!ok&&!($('fiBadge-'+safeId(path))?.classList.contains('done')))setTabDot(sid,'err');}
+
 function restoreCache(path){
-  const sid=safeId(path); const c=cache[path]; if(!c) return;
-  const st=getState(path);
-  const fname=path.split('/').pop();
-  st.patterns=c.patterns; st.csText=c.cs; st.csLinesArr=c.cs.split('\n');
-  renderCodeLines('csLines-'+sid,st.csLinesArr);
-  renderCSV(path,st.patterns);
-  $('csFname-'+sid).textContent=fname.replace(/\.(c|pc|h)$/i,'_migrated.cs');
-  $('csMeta-'+sid).textContent=c.cs.length.toLocaleString()+' 文字';
-  $('csvBadge-'+sid).textContent=st.patterns.length;
-  $('csvBadge-'+sid).className='badge has';
-  $('btnDlCs-'+sid).style.display='inline-block';
-  $('btnDlCsv-'+sid).style.display='inline-block';
-  for(let i=0;i<=5;i++) agSet(i,sid,'done');
-  setFStatus(sid,`キャッシュ済み — ${st.patterns.length} パターン`,'ok');
-  setTabDot(sid,'done'); setBadge(path,'done','✓');
-  refreshReviewBadge(path); showTable(sid);
-  const ext = fname.split('.').pop().toLowerCase();
-  if(ext !== 'h') loadDependencies(path,0);
+  const sid=safeId(path),c=cache[path];if(!c)return;
+  const st=getState(path),fname=path.split('/').pop();
+  st.patterns=c.patterns;st.csText=c.cs;st.csLinesArr=c.cs.split('\n');
+  renderCodeLines('csLines-'+sid,st.csLinesArr);renderCSV(path,st.patterns);
+  $('csFname-'+sid).textContent=fname.replace(/\.(c|pc|h)$/i,'_migrated.cs');$('csMeta-'+sid).textContent=c.cs.length.toLocaleString()+' 文字';
+  $('csvBadge-'+sid).textContent=st.patterns.length;$('csvBadge-'+sid).className='badge has';
+  $('btnDlCs-'+sid).style.display='inline-block';$('btnDlCsv-'+sid).style.display='inline-block';
+  for(let i=0;i<=5;i++)agSet(i,sid,i===4?'nollm':'done');
+  setFStatus(sid,`キャッシュ済み — ${st.patterns.length} パターン`,'ok');setTabDot(sid,'done');setBadge(path,'done','✓');
+  refreshReviewBadge(path);showTable(sid);updateMapStatus(path);
+  const ext=fname.split('.').pop().toLowerCase();if(ext!=='h')loadDependencies(path,0);
 }
 function clearOne(path){
-  const sid=safeId(path); const st=getState(path);
-  if(st.sse){ st.sse.close(); st.sse=null; }
-  if(st.depRetryTimer){ clearTimeout(st.depRetryTimer); st.depRetryTimer=null; }
-  st.patterns=[]; st.csText=''; st.csLinesArr=[]; st.reviews={};
-  st.hasDeps=false; st.depRetryCount=0;
-  closeReview(path);
-  $('logScroll-'+sid).innerHTML=`<div class="empty-state" id="logEmpty-${sid}">
-    <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
-      <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
-    </svg><div>▶ 実行 ボタンを押して開始</div></div>`;
-  showLog(sid);
-  $('csvBadge-'+sid).textContent='0'; $('csvBadge-'+sid).className='badge';
-  $('reviewBadge-'+sid).style.display='none'; $('depBadge-'+sid).style.display='none';
-  const csEl=$('csLines-'+sid);
-  if(csEl) csEl.innerHTML='<div style="padding:12px 14px;color:var(--dim)">// C# の出力がここに表示されます</div>';
-  $('csFname-'+sid).textContent='—'; $('csMeta-'+sid).textContent='';
-  $('btnDlCs-'+sid).style.display='none'; $('btnDlCsv-'+sid).style.display='none';
-  $('fElapsed-'+sid).textContent='';
-  for(let i=0;i<=5;i++) agSet(i,sid,'');
-  setFStatus(sid,'準備完了'); setTabDot(sid,'idle'); setBadge(path,'','?');
-  delete cache[path];
+  const sid=safeId(path),st=getState(path);
+  if(st.sse){st.sse.close();st.sse=null;}if(st.depRetryTimer){clearTimeout(st.depRetryTimer);st.depRetryTimer=null;}
+  st.patterns=[];st.csText='';st.csLinesArr=[];st.reviews={};st.hasDeps=false;st.depRetryCount=0;st.loadedFromDb=false;closeReview(path);
+  $('logScroll-'+sid).innerHTML=`<div class="empty-state" id="logEmpty-${sid}"><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg><div>▶ 実行 ボタンを押して開始</div></div>`;
+  showLog(sid);$('csvBadge-'+sid).textContent='0';$('csvBadge-'+sid).className='badge';$('reviewBadge-'+sid).style.display='none';$('depBadge-'+sid).style.display='none';
+  const csEl=$('csLines-'+sid);if(csEl)csEl.innerHTML='<div style="padding:12px 14px;color:var(--dim)">// C# の出力がここに表示されます</div>';
+  $('csFname-'+sid).textContent='—';$('csMeta-'+sid).textContent='';$('btnDlCs-'+sid).style.display='none';$('btnDlCsv-'+sid).style.display='none';$('btnDbDel-'+sid).style.display='none';$('fSrcBadge-'+sid).style.display='none';$('fElapsed-'+sid).textContent='';
+  const ms=$('mapStatus-'+sid);if(ms)ms.textContent='';
+  for(let i=0;i<=5;i++)agSet(i,sid,'');setFStatus(sid,'準備完了');setTabDot(sid,'idle');setBadge(path,'','?');delete cache[path];
 }
 
 /* ════ CALL GRAPH ════ */
 function triggerCallGraph(){
-  const btn=$('btnCallGraph');
-  if(btn.classList.contains('running')) return;
-  btn.classList.add('running'); btn.textContent='⇄ 分析中…'; btn.disabled=true;
-  const url=serverUrl()+'/api/call-graph';
-  const sse=new EventSource(url+'?t='+Date.now());
-  sse.onmessage=ev=>{
-    let event; try{event=JSON.parse(ev.data);}catch(_){return;}
-    if(event.type==='log') console.log('[CallGraph]', event.msg);
-    if(event.type==='done'){
-      sse.close();
-      btn.classList.remove('running'); btn.textContent='⇄ 依存関係分析'; btn.disabled=false;
-      Object.keys(fileStates).forEach(p=>loadDependencies(p,0));
-    }
-    if(event.type==='error'){
-      sse.close();
-      btn.classList.remove('running'); btn.textContent='⇄ 依存関係分析'; btn.disabled=false;
-    }
-  };
-  sse.onerror=()=>{
-    sse.close();
-    btn.classList.remove('running'); btn.textContent='⇄ 依存関係分析'; btn.disabled=false;
-  };
+  const btn=$('btnCallGraph');if(btn.classList.contains('running'))return;
+  btn.classList.add('running');btn.textContent='⇄ 分析中…';btn.disabled=true;
+  const sse=new EventSource(serverUrl()+'/api/call-graph?t='+Date.now());
+  sse.onmessage=ev=>{let e;try{e=JSON.parse(ev.data);}catch(_){return;}if(e.type==='log')console.log('[CG]',e.msg);if(e.type==='done'){sse.close();btn.classList.remove('running');btn.textContent='⇄ 依存関係分析';btn.disabled=false;Object.keys(fileStates).forEach(p=>loadDependencies(p,0));}if(e.type==='error'){sse.close();btn.classList.remove('running');btn.textContent='⇄ 依存関係分析';btn.disabled=false;}};
+  sse.onerror=()=>{sse.close();btn.classList.remove('running');btn.textContent='⇄ 依存関係分析';btn.disabled=false;};
 }
-async function loadDependencies(path, retryCount){
-  const sid=safeId(path); const st=getState(path);
-  if(path.endsWith('.h')) return;
-  if(retryCount===0 && st.depRetryTimer){ clearTimeout(st.depRetryTimer); st.depRetryTimer=null; }
+async function loadDependencies(path,retryCount){
+  const sid=safeId(path),st=getState(path);if(path.endsWith('.h'))return;
+  if(retryCount===0&&st.depRetryTimer){clearTimeout(st.depRetryTimer);st.depRetryTimer=null;}
   try{
     const r=await fetch(`${serverUrl()}/api/call-graph/file?name=${encodeURIComponent(path)}`);
-    if(r.status===202){
-      if(retryCount<CG_RETRY_MAX){
-        setDepBadgePending(sid);
-        st.depRetryCount=retryCount+1;
-        st.depRetryTimer=setTimeout(()=>loadDependencies(path,retryCount+1),CG_RETRY_DELAY_MS);
-      } else { const b=$('depBadge-'+sid); if(b) b.style.display='none'; }
-      return;
+    if(r.status===202){if(retryCount<CG_RETRY_MAX){setDepBadgePending(sid);st.depRetryCount=retryCount+1;st.depRetryTimer=setTimeout(()=>loadDependencies(path,retryCount+1),CG_RETRY_DELAY_MS);}else{const b=$('depBadge-'+sid);if(b)b.style.display='none';}return;}
+    if(!r.ok)return;const d=await r.json();if(d.error)return;
+    if(st.depRetryTimer){clearTimeout(st.depRetryTimer);st.depRetryTimer=null;}
+    st.hasDeps=true;st.depRetryCount=0;
+    const dm={};d.patterns.forEach(p=>dm[p.id]=p);st.patterns=st.patterns.map(p=>({...p,...(dm[p.id]||{})}));
+    const b=$('depBadge-'+sid);
+    if(b){
+      const s=d.summary||{};
+      const fc=s.total_func_calls||0,cr=s.total_func_creates||0;
+      const total=(s.total_callees||0)+(s.total_callers||0);
+      b.style.display='inline-block';b.className='badge dep';
+      b.title=`calls:${fc} creates:${cr}`;
+      b.textContent=`⇄ ${total} deps (▸${fc}c ${cr}cr)`;
     }
-    if(!r.ok) return;
-    const d=await r.json(); if(d.error) return;
-    if(st.depRetryTimer){ clearTimeout(st.depRetryTimer); st.depRetryTimer=null; }
-    st.hasDeps=true; st.depRetryCount=0;
-    const depMap={}; d.patterns.forEach(p=>depMap[p.id]=p);
-    st.patterns=st.patterns.map(p=>({...p,...(depMap[p.id]||{})}));
-    const badge=$('depBadge-'+sid);
-    if(badge){ badge.style.display='inline-block'; badge.className='badge dep'; badge.textContent=`⇄ ${d.summary.total_callees+d.summary.total_callers} deps`; }
-    renderCSV(path,st.patterns);
-    if(st.activeReviewId!=null) renderReviewDeps(path,st.activeReviewId);
-  }catch(e){ console.debug('[CallGraph] loadDependencies error:',e.message); }
+    renderCSV(path,st.patterns);if(st.activeReviewId!=null)renderReviewFkDeps(path,st.activeReviewId);
+  }catch(e){console.debug('[CG]',e.message);}
 }
-function setDepBadgePending(sid){
-  const badge=$('depBadge-'+sid); if(!badge) return;
-  badge.style.display='inline-block'; badge.className='badge dep-pending'; badge.textContent='⇄ 分析中…';
+function setDepBadgePending(sid){const b=$('depBadge-'+sid);if(!b)return;b.style.display='inline-block';b.className='badge dep-pending';b.textContent='⇄ 分析中…';}
+
+/* ════ FUNC KIND CHIP HELPERS (v2.0) ════ */
+function _fkClass(fk){
+  if(fk==='create')return'fk-create';
+  if(fk==='system')return'fk-system';
+  return'fk-call';
 }
-function renderReviewDeps(path, patternId){
-  const sid=safeId(path); const st=getState(path);
-  const p=st.patterns.find(x=>x.id===patternId); if(!p) return;
-  const section=$('rpDep-'+sid); if(!section) return;
-  const callees=p.callees||[], callers=p.callers||[], srcFile=p.source_file||'';
-  if(!st.hasDeps && st.depRetryCount>0){
-    section.style.display='flex';
-    // ── FIX: optional chaining không thể dùng ở phía trái phép gán ──
-    ['rpDepFile-'+sid,'rpDepCallees-'+sid,'rpDepCallers-'+sid].forEach(elId=>{
-      const el = document.getElementById(elId);
-      if(el) el.innerHTML='<span class="rp-dep-pending">⟳ 分析中…</span>';
-    });
-    return;
-  }
-  if(!callees.length && !callers.length && !srcFile){ section.style.display='none'; return; }
-  section.style.display='flex';
-  const fc=$('rpDepFile-'+sid);
-  if(fc) fc.innerHTML=srcFile?`<span class="dep-call dep-local">${esc(srcFile)}</span>`:'<span class="rp-dep-empty">—</span>';
-  const ce=$('rpDepCallees-'+sid);
-  if(ce) ce.innerHTML=!callees.length?'<span class="rp-dep-empty">なし</span>':callees.map(c=>{
-    const tip=c.file?`${c.file}:L${c.line||'?'}`:(c.kind==='stdlib'?'stdlib':'extern');
-    return `<span class="dep-call dep-${c.kind||'unknown'}" title="${esc(tip)}" onclick="jumpToDepFile('${esc(c.file||'')}',${c.line||0})">${esc(c.name)}</span>`;
-  }).join('');
-  const re=$('rpDepCallers-'+sid);
-  if(re) re.innerHTML=!callers.length?'<span class="rp-dep-empty">なし</span>':callers.map(c=>{
-    const label=c.caller_func?`${c.caller_func} (${c.file}:L${c.line})`:`${c.file}:L${c.line}`;
-    return `<span class="dep-call dep-caller" title="${esc(label)}" onclick="jumpToDepFile('${esc(c.file||'')}',${c.line||0})">${esc(c.caller_func||c.file)}</span>`;
-  }).join('');
+function _fkCallerClass(fk){
+  if(fk==='create')return'fk-caller-create';
+  if(fk==='system')return'fk-caller-system';
+  return'fk-caller-call';
 }
-function jumpToDepFile(file,line){
-  if(!file) return;
-  const match = _flatFiles.find(f=>f.name===file || f.path===file);
-  const fullPath = match ? match.path : file;
-  openFileView(fullPath);
-  if(line>0){
-    const sid=safeId(fullPath);
-    setTimeout(()=>highlightLines('srcLines-'+sid,line,line),300);
-  }
+function _fkIcon(fk){
+  if(fk==='create')return'🟢';
+  if(fk==='system')return'⬜';
+  return'🔵';
 }
 
-/* ════ UI HELPERS ════ */
-function agSet(idx,sid,state){ const el=$(`ag${idx}-${sid}`); if(!el)return; el.classList.remove('run','done','err'); if(state)el.classList.add(state); }
-function agsDone(sid,upTo){ for(let i=0;i<=5;i++) agSet(i,sid,i<upTo?'done':i===upTo?'run':''); }
-function setTabDot(sid,state){ const el=$('tabDot-'+sid); if(!el)return; el.className='tab-dot dot-'+state; }
-function setBadge(path,cls,txt){
-  const sid=safeId(path); const el=$('fiBadge-'+sid); if(!el)return;
-  el.className='fi-badge'+(cls?' '+cls:''); el.textContent=txt;
+function _calleeChipHtml(c){
+  const hasDef=c.definition_pattern_id!=null;
+  const defFile=c.definition_file||c.file||'';
+  const defPid=c.definition_pattern_id;
+  const fk=c.func_kind||'call';
+  const tip=hasDef?`[${fk}] 定義: ${defFile} パターン#${defPid}`:(c.file?`[${fk}] ${c.file}:L${c.line||'?'}`:fk);
+  const cls='dep-call-chip '+_fkClass(fk);
+  const defBadge=hasDef?`<span class="chip-def-badge">def</span>`:'';
+  const crBadge=fk==='create'?`<span class="chip-create-badge">new</span>`:'';
+  const nav=hasDef?`onclick="navigateToDefinition('${esc(defFile)}',${defPid})" style="cursor:pointer"`:
+            c.file?`onclick="jumpToDepFile('${esc(c.file||'')}',${c.line||0})" style="cursor:pointer"`:'';
+  return `<span class="${cls}" title="${esc(tip)}" ${nav}>${_fkIcon(fk)} ${esc(c.name)}${defBadge}${crBadge}</span>`;
 }
-function setFStatus(sid,msg,cls=''){
-  const el=$('fStatus-'+sid); if(!el)return;
-  el.textContent=msg; el.className='f-status'+(cls?' '+cls:'');
+
+function _callerChipHtml(c){
+  const hasDef=c.definition_pattern_id!=null;
+  const defFile=c.definition_file||c.file||'';
+  const defPid=c.definition_pattern_id;
+  const fk=c.func_kind||'call';
+  const label=c.caller_func||c.file||'?';
+  const tip=hasDef?`[${fk}] 定義: ${defFile} パターン#${defPid}`:`${c.file}:L${c.line||'?'}`;
+  const cls='dep-call-chip '+_fkCallerClass(fk);
+  const defBadge=hasDef?`<span class="chip-def-badge">def</span>`:'';
+  const nav=hasDef?`onclick="navigateToDefinition('${esc(defFile)}',${defPid})" style="cursor:pointer"`:
+            c.file?`onclick="jumpToDepFile('${esc(c.file||'')}',${c.line||0})" style="cursor:pointer"`:'';
+  return `<span class="${cls}" title="${esc(tip)}" ${nav}>${esc(label)}${defBadge}</span>`;
 }
-function addLog(sid,msg,cls=''){
-  const wrap=$('logScroll-'+sid); if(!wrap)return;
-  $('logEmpty-'+sid)?.remove();
-  const line=document.createElement('div');
-  line.className='log-line';
-  line.innerHTML=`<span class="log-ts">${ts()}</span><span class="log-msg ${cls}">${esc(msg)}</span>`;
-  wrap.appendChild(line); wrap.scrollTop=wrap.scrollHeight;
+
+/* ════ REVIEW PANEL — func kind section ════ */
+function renderReviewFkDeps(path, patternId){
+  const sid=safeId(path),st=getState(path);
+  const p=st.patterns.find(x=>x.id===patternId);if(!p)return;
+  const sec=$('rpFkSec-'+sid);if(!sec)return;
+
+  const allCallees=(p.callees||[]);
+  const calls   =allCallees.filter(c=>c.func_kind==='call');
+  const creates =allCallees.filter(c=>c.func_kind==='create');
+  const systems =allCallees.filter(c=>c.func_kind==='system');
+  const callers =p.callers||[];
+
+  if(!calls.length&&!creates.length&&!systems.length&&!callers.length){sec.style.display='none';return;}
+  sec.style.display='flex';
+
+  const ce=$('rpFkCalls-'+sid);
+  if(ce)ce.innerHTML=calls.length?calls.map(_calleeChipHtml).join(''):`<span class="rp-dep-empty">なし</span>`;
+
+  const cre=$('rpFkCreates-'+sid);
+  if(cre)cre.innerHTML=creates.length?creates.map(_calleeChipHtml).join(''):`<span class="rp-dep-empty">なし</span>`;
+
+  const sys=$('rpFkSystem-'+sid);
+  if(sys)sys.innerHTML=systems.length?systems.slice(0,8).map(_calleeChipHtml).join('')+(systems.length>8?`<span style="color:var(--dim2);font-size:9px"> +${systems.length-8}</span>`:''):`<span class="rp-dep-empty">なし</span>`;
+
+  const cal=$('rpFkCallers-'+sid);
+  if(cal)cal.innerHTML=callers.length?callers.map(_callerChipHtml).join(''):`<span class="rp-dep-empty">なし</span>`;
 }
-function showTable(sid){ $('logOverlay-'+sid)?.classList.remove('visible'); $('tblWrap-'+sid)?.classList.add('visible'); }
-function showLog(sid)  { $('tblWrap-'+sid)?.classList.remove('visible');   $('logOverlay-'+sid)?.classList.add('visible'); }
+
+function navigateToDefinition(file,patternId){
+  if(!file||patternId==null)return;
+  const match=_flatFiles.find(f=>f.name===file||f.path===file||f.path.endsWith('/'+file));
+  const fullPath=match?match.path:file;
+  openFileView(fullPath);
+  _waitAndSelectPattern(fullPath,patternId,0);
+}
+function _waitAndSelectPattern(path,patternId,attempt){
+  if(attempt>20)return;
+  const st=getState(path);
+  const p=st.patterns.find(x=>x.id===patternId);
+  if(p){onRowClick(path,patternId);showTable(safeId(path));}
+  else setTimeout(()=>_waitAndSelectPattern(path,patternId,attempt+1),100);
+}
+function jumpToDepFile(file,line){
+  if(!file)return;
+  const match=_flatFiles.find(f=>f.name===file||f.path===file);
+  const fullPath=match?match.path:file;
+  openFileView(fullPath);
+  if(line>0){const sid=safeId(fullPath);setTimeout(()=>highlightLines('srcLines-'+sid,line,line),300);}
+}
+
+/* ════ MAPPING STATUS ════ */
+function updateMapStatus(path){
+  const sid=safeId(path),st=getState(path);
+  const ms=$('mapStatus-'+sid);if(!ms)return;
+  const withCs=st.patterns.filter(p=>p.cs_line_start&&p.cs_line_start>0).length;
+  const total=st.patterns.length;
+  if(total===0){ms.textContent='';return;}
+  ms.textContent=withCs===total?`⚡ 1-1マッピング: ${total}/${total}`:`⚡ マッピング: ${withCs}/${total}`;
+}
 
 /* ════ CODE VIEW ════ */
 function renderCodeLines(containerId,linesArr){
-  const container=$(containerId); if(!container)return;
-  container.innerHTML='';
+  const c=$(containerId);if(!c)return;c.innerHTML='';
   linesArr.forEach((text,i)=>{
-    const row=document.createElement('div');
-    row.className='code-line'; row.dataset.line=i+1;
+    const row=document.createElement('div');row.className='code-line';row.dataset.line=i+1;
     row.innerHTML=`<span class="line-num">${i+1}</span><span class="line-body">${esc(text)}</span>`;
-    container.appendChild(row);
+    c.appendChild(row);
   });
 }
-function highlightLines(containerId,startLine,endLine,scroll=true){
-  const container=$(containerId); if(!container)return;
-  container.querySelectorAll('.code-line').forEach(row=>{
-    row.classList.remove('hl-active','hl-range');
+function highlightLines(containerId,startLine,endLine,scroll=true,colorClass=''){
+  const c=$(containerId);if(!c)return;
+  const activeClass=colorClass==='cs'?'hl-cs-active':'hl-active';
+  const rangeClass=colorClass==='cs'?'hl-cs-range':'hl-range';
+  c.querySelectorAll('.code-line').forEach(row=>{
+    row.classList.remove('hl-active','hl-range','hl-cs-active','hl-cs-range');
     const ln=+row.dataset.line;
-    if(ln===startLine) row.classList.add('hl-active');
-    else if(ln>startLine&&ln<=endLine) row.classList.add('hl-range');
+    if(ln===startLine)row.classList.add(activeClass);
+    else if(ln>startLine&&ln<=endLine)row.classList.add(rangeClass);
   });
-  if(scroll){
-    const first=container.querySelector(`.code-line[data-line="${startLine}"]`);
-    if(first){
-      const view=container.parentElement;
-      const lineH=first.getBoundingClientRect().height||20;
-      view.scrollTo({top:Math.max(0,(startLine-1)*lineH-view.clientHeight*.3),behavior:'smooth'});
-    }
-  }
+  if(scroll){const first=c.querySelector(`.code-line[data-line="${startLine}"]`);if(first){const view=c.parentElement;const lineH=first.getBoundingClientRect().height||20;view.scrollTo({top:Math.max(0,(startLine-1)*lineH-view.clientHeight*.3),behavior:'smooth'});}}
 }
-function clearHighlights(containerId){ $(containerId)?.querySelectorAll('.code-line').forEach(r=>r.classList.remove('hl-active','hl-range')); }
+function clearHighlights(containerId){$(containerId)?.querySelectorAll('.code-line').forEach(r=>r.classList.remove('hl-active','hl-range','hl-cs-active','hl-cs-range'));}
+
+function findCsLinesForPattern(path,pattern){
+  const st=getState(path);
+  if(pattern.cs_line_start&&pattern.cs_line_start>0)return[pattern.cs_line_start,pattern.cs_line_end||pattern.cs_line_start];
+  const marker=`// ── Pattern #${pattern.id} [L`;
+  for(let i=0;i<st.csLinesArr.length;i++){if(st.csLinesArr[i].includes(marker)){let endLine=i+1;for(let j=i+1;j<st.csLinesArr.length&&j<i+50;j++){if(st.csLinesArr[j].includes('// ── Pattern #')||st.csLinesArr[j].includes('} // end')){endLine=j-1;break;}endLine=j;}return[i+1,endLine+1];}}
+  return findSnippetLines(pattern.csharp_snippet||'',st.csLinesArr);
+}
 function findSnippetLines(snippet,linesArr){
-  if(!snippet||!linesArr.length) return null;
-  const snippetLines=snippet.split('\n');
-  const anchor=snippetLines.find(l=>{const t=l.trim();return t.length>3&&!/^[{}()\s*\/]+$/.test(t);})||snippetLines.find(l=>l.trim())||'';
-  if(!anchor.trim()) return null;
-  const at=anchor.trim();
-  for(let i=0;i<linesArr.length;i++) if(linesArr[i].includes(at)) return[i+1,i+snippetLines.length];
+  if(!snippet||!linesArr.length)return null;
+  const sl=snippet.split('\n');
+  const anchor=sl.find(l=>{const t=l.trim();return t.length>3&&!/^[{}()\s*\/]+$/.test(t);})||sl.find(l=>l.trim())||'';
+  if(!anchor.trim())return null;
+  const at=anchor.trim();for(let i=0;i<linesArr.length;i++)if(linesArr[i].includes(at))return[i+1,i+sl.length];
   return null;
 }
 function findSrcLines(path,pattern){
   const st=getState(path);
   const[sl,el]=pattern.line_range||[0,0];
-  if(sl>0&&el>=sl&&st.srcLines.length>0){
-    const snippet=(pattern.source_snippet||'').trim();
-    const fw=snippet.split(/\W+/).find(w=>w.length>2)||'';
-    const rt=st.srcLines.slice(sl-1,el).join('\n');
-    if(!fw||rt.includes(fw)) return[sl,el];
-  }
+  if(sl>0&&el>=sl&&st.srcLines.length>0){const snippet=(pattern.source_snippet||'').trim();const fw=snippet.split(/\W+/).find(w=>w.length>2)||'';const rt=st.srcLines.slice(sl-1,el).join('\n');if(!fw||rt.includes(fw))return[sl,el];}
   return findSnippetLines(pattern.source_snippet||'',st.srcLines);
 }
-function findCsLines(path,pattern){ return findSnippetLines(pattern.csharp_snippet||'',getState(path).csLinesArr); }
 
 /* ════ ROW CLICK ════ */
 function onRowClick(path,patternId){
-  const sid=safeId(path); const st=getState(path);
-  const p=st.patterns.find(x=>x.id===patternId); if(!p)return;
+  const sid=safeId(path),st=getState(path);
+  const p=st.patterns.find(x=>x.id===patternId);if(!p)return;
   document.querySelectorAll(`#csvBody-${sid} tr`).forEach(tr=>tr.classList.toggle('row-selected',+tr.dataset.pid===patternId));
   const sr=findSrcLines(path,p);
-  if(sr){highlightLines('srcLines-'+sid,sr[0],sr[1]);$('srcPin-'+sid).textContent=`L${sr[0]}–${sr[1]}`;}
+  if(sr){highlightLines('srcLines-'+sid,sr[0],sr[1],true,'');$('srcPin-'+sid).textContent=`L${sr[0]}–${sr[1]}`;}
   else{clearHighlights('srcLines-'+sid);$('srcPin-'+sid).textContent='';}
-  const cr=findCsLines(path,p);
-  if(cr){highlightLines('csLines-'+sid,cr[0],cr[1]);$('csPin-'+sid).textContent=`L${cr[0]}–${cr[1]}`;}
+  const cr=findCsLinesForPattern(path,p);
+  if(cr){highlightLines('csLines-'+sid,cr[0],cr[1],true,'cs');$('csPin-'+sid).textContent=`L${cr[0]}–${cr[1]}`;}
   else{clearHighlights('csLines-'+sid);$('csPin-'+sid).textContent='';}
   openReview(path,patternId);
 }
 
 /* ════ REVIEW ════ */
 function openReview(path,patternId){
-  const sid=safeId(path); const st=getState(path);
-  const p=st.patterns.find(x=>x.id===patternId); if(!p)return;
+  const sid=safeId(path),st=getState(path);
+  const p=st.patterns.find(x=>x.id===patternId);if(!p)return;
   st.activeReviewId=patternId;
   $('rpId-'+sid).textContent=`#${p.id} — ${p.raw_type||p.pattern_type||''}`;
-  const rv=st.reviews[patternId]||{}; const ed=rv.edits||{};
+  const sr=findSrcLines(path,p);const cr=findCsLinesForPattern(path,p);
+  const srcR=$('rpSrcRange-'+sid);if(srcR)srcR.textContent=sr?`L${sr[0]}–${sr[1]} (C ファイル)`:'—';
+  const csR=$('rpCsRange-'+sid);if(csR)csR.textContent=cr?`L${cr[0]}–${cr[1]} (C# ファイル)`:'—';
+  const rv=st.reviews[patternId]||{},ed=rv.edits||{};
   setStatusR(path,rv.status||null,false);
   $('rp_summary-'+sid).value=ed.summary_vi??(p.summary_vi||'');
   $('rp_csharp-'+sid).value=ed.csharp_snippet??(p.csharp_snippet||'');
@@ -1170,135 +1047,64 @@ function openReview(path,patternId){
   setSel('rp_risk_strategy-'+sid,ed.risk_strategy??p.risk_strategy??'AI提案');
   $('rp_popularity-'+sid).value=String(ed.csharp_popularity??p.csharp_popularity??3);
   const idx=st.patterns.findIndex(x=>x.id===patternId);
-  $('rpPrev-'+sid).disabled=idx<=0; $('rpNext-'+sid).disabled=idx>=st.patterns.length-1;
+  $('rpPrev-'+sid).disabled=idx<=0;$('rpNext-'+sid).disabled=idx>=st.patterns.length-1;
   $('reviewPanel-'+sid).classList.add('open');
-  renderReviewDeps(path,patternId);
+  renderReviewFkDeps(path,patternId);
 }
-function setSel(id,val){ const s=$(id); if(!s)return; for(const o of s.options) if(o.value===String(val)){o.selected=true;return;} if(s.options.length) s.options[0].selected=true; }
+function setSel(id,val){const s=$(id);if(!s)return;for(const o of s.options)if(o.value===String(val)){o.selected=true;return;}if(s.options.length)s.options[0].selected=true;}
 function closeReview(path){
-  const sid=safeId(path); const st=getState(path);
-  $('reviewPanel-'+sid)?.classList.remove('open');
-  st.activeReviewId=null;
-  clearHighlights('srcLines-'+sid); clearHighlights('csLines-'+sid);
-  if($('srcPin-'+sid)) $('srcPin-'+sid).textContent='';
-  if($('csPin-'+sid))  $('csPin-'+sid).textContent='';
+  const sid=safeId(path),st=getState(path);$('reviewPanel-'+sid)?.classList.remove('open');st.activeReviewId=null;
+  clearHighlights('srcLines-'+sid);clearHighlights('csLines-'+sid);
+  if($('srcPin-'+sid))$('srcPin-'+sid).textContent='';if($('csPin-'+sid))$('csPin-'+sid).textContent='';
   document.querySelectorAll(`#csvBody-${sid} tr`).forEach(tr=>tr.classList.remove('row-selected'));
 }
 function setStatusR(path,status,updateUI=true){
-  const sid=safeId(path); const st=getState(path);
+  const sid=safeId(path),st=getState(path);
   ['rsOk','rsFix','rsReject'].forEach(id=>$(`${id}-${sid}`)?.classList.remove('sel-ok','sel-fix','sel-reject'));
-  if(status==='ok')     $(`rsOk-${sid}`)?.classList.add('sel-ok');
-  if(status==='fix')    $(`rsFix-${sid}`)?.classList.add('sel-fix');
-  if(status==='reject') $(`rsReject-${sid}`)?.classList.add('sel-reject');
-  if(updateUI&&st.activeReviewId!=null){
-    if(!st.reviews[st.activeReviewId]) st.reviews[st.activeReviewId]={status:null,edits:{}};
-    st.reviews[st.activeReviewId].status=status;
-    refreshReviewBadge(path); updateRowReviewBadge(path,st.activeReviewId);
-  }
+  if(status==='ok')$(`rsOk-${sid}`)?.classList.add('sel-ok');if(status==='fix')$(`rsFix-${sid}`)?.classList.add('sel-fix');if(status==='reject')$(`rsReject-${sid}`)?.classList.add('sel-reject');
+  if(updateUI&&st.activeReviewId!=null){if(!st.reviews[st.activeReviewId])st.reviews[st.activeReviewId]={status:null,edits:{}};st.reviews[st.activeReviewId].status=status;refreshReviewBadge(path);updateRowReviewBadge(path,st.activeReviewId);}
 }
 function saveReview(path){
-  const sid=safeId(path); const st=getState(path);
-  if(st.activeReviewId==null)return;
-  let status=null;
-  if($(`rsOk-${sid}`)?.classList.contains('sel-ok'))         status='ok';
-  else if($(`rsFix-${sid}`)?.classList.contains('sel-fix'))  status='fix';
-  else if($(`rsReject-${sid}`)?.classList.contains('sel-reject')) status='reject';
-  const edits={
-    summary_vi:$(`rp_summary-${sid}`).value.trim(),
-    csharp_snippet:$(`rp_csharp-${sid}`).value.trim(),
-    difficulty:$(`rp_difficulty-${sid}`).value,
-    migration_strategy:$(`rp_strategy-${sid}`).value.trim(),
-    risk_level:$(`rp_risk_level-${sid}`).value,
-    risk_strategy:$(`rp_risk_strategy-${sid}`).value,
-    csharp_popularity:parseInt($(`rp_popularity-${sid}`).value,10),
-  };
-  st.reviews[st.activeReviewId]={status,edits};
-  const p=st.patterns.find(x=>x.id===st.activeReviewId);
-  if(p) Object.assign(p,edits);
-  refreshReviewBadge(path); updateRowReviewBadge(path,st.activeReviewId); updateTableRow(path,st.activeReviewId);
-  const btn=$('reviewPanel-'+sid)?.querySelector('.rp-save');
-  if(btn){ btn.textContent='✓ 保存済み'; setTimeout(()=>btn.textContent='保存',1200); }
+  const sid=safeId(path),st=getState(path);if(st.activeReviewId==null)return;
+  let status=null;if($(`rsOk-${sid}`)?.classList.contains('sel-ok'))status='ok';else if($(`rsFix-${sid}`)?.classList.contains('sel-fix'))status='fix';else if($(`rsReject-${sid}`)?.classList.contains('sel-reject'))status='reject';
+  const edits={summary_vi:$(`rp_summary-${sid}`).value.trim(),csharp_snippet:$(`rp_csharp-${sid}`).value.trim(),difficulty:$(`rp_difficulty-${sid}`).value,migration_strategy:$(`rp_strategy-${sid}`).value.trim(),risk_level:$(`rp_risk_level-${sid}`).value,risk_strategy:$(`rp_risk_strategy-${sid}`).value,csharp_popularity:parseInt($(`rp_popularity-${sid}`).value,10)};
+  st.reviews[st.activeReviewId]={status,edits};const p=st.patterns.find(x=>x.id===st.activeReviewId);if(p)Object.assign(p,edits);
+  refreshReviewBadge(path);updateRowReviewBadge(path,st.activeReviewId);updateTableRow(path,st.activeReviewId);
+  const btn=$('reviewPanel-'+sid)?.querySelector('.rp-save');if(btn){btn.textContent='✓ 保存済み';setTimeout(()=>btn.textContent='保存',1200);}
 }
-function navReview(path,dir){
-  saveReview(path);
-  const st=getState(path);
-  const idx=st.patterns.findIndex(x=>x.id===st.activeReviewId);
-  const next=st.patterns[idx+dir];
-  if(next) onRowClick(path,next.id);
-}
-function refreshReviewBadge(path){
-  const sid=safeId(path); const st=getState(path);
-  const pending=st.patterns.filter(p=>!st.reviews[p.id]?.status).length;
-  const badge=$('reviewBadge-'+sid); if(!badge)return;
-  if(!st.patterns.length){badge.style.display='none';return;}
-  badge.style.display='inline-block';
-  badge.textContent=`${pending} 件未レビュー`;
-  badge.className=pending===0?'badge has':'badge warn';
-}
-function updateRowReviewBadge(path,patternId){
-  const sid=safeId(path);
-  const tr=document.querySelector(`#csvBody-${sid} tr[data-pid="${patternId}"]`);
-  if(!tr)return;
-  const cell=tr.querySelector('.rv-cell'); if(!cell)return;
-  cell.innerHTML=reviewBadgeHtml(path,patternId);
-}
-function reviewBadgeHtml(path,patternId){
-  const rv=getState(path).reviews[patternId];
-  if(!rv?.status) return '<span class="rs-badge rs-none">未</span>';
-  if(rv.status==='ok')     return '<span class="rs-badge rs-ok">✓ 承認</span>';
-  if(rv.status==='fix')    return '<span class="rs-badge rs-fix">△ 修正</span>';
-  if(rv.status==='reject') return '<span class="rs-badge rs-reject">✕ 却下</span>';
-  return '';
-}
-function updateTableRow(path,patternId){
-  const sid=safeId(path);
-  const tr=document.querySelector(`#csvBody-${sid} tr[data-pid="${patternId}"]`); if(!tr)return;
-  const p=getState(path).patterns.find(x=>x.id===patternId); if(!p)return;
+function navReview(path,dir){saveReview(path);const st=getState(path);const idx=st.patterns.findIndex(x=>x.id===st.activeReviewId);const next=st.patterns[idx+dir];if(next)onRowClick(path,next.id);}
+function refreshReviewBadge(path){const sid=safeId(path),st=getState(path);const pending=st.patterns.filter(p=>!st.reviews[p.id]?.status).length;const b=$('reviewBadge-'+sid);if(!b)return;if(!st.patterns.length){b.style.display='none';return;}b.style.display='inline-block';b.textContent=`${pending} 件未レビュー`;b.className=pending===0?'badge has':'badge warn';}
+function updateRowReviewBadge(path,pid){const sid=safeId(path);const tr=document.querySelector(`#csvBody-${sid} tr[data-pid="${pid}"]`);if(!tr)return;const cell=tr.querySelector('.rv-cell');if(!cell)return;cell.innerHTML=reviewBadgeHtml(path,pid);}
+function reviewBadgeHtml(path,pid){const rv=getState(path).reviews[pid];if(!rv?.status)return'<span class="rs-badge rs-none">未</span>';if(rv.status==='ok')return'<span class="rs-badge rs-ok">✓ 承認</span>';if(rv.status==='fix')return'<span class="rs-badge rs-fix">△ 修正</span>';if(rv.status==='reject')return'<span class="rs-badge rs-reject">✕ 却下</span>';return'';}
+function updateTableRow(path,pid){
+  const sid=safeId(path),tr=document.querySelector(`#csvBody-${sid} tr[data-pid="${pid}"]`);if(!tr)return;
+  const p=getState(path).patterns.find(x=>x.id===pid);if(!p)return;
   const tds=tr.querySelectorAll('td:not(.rv-cell)');
-  COLS.filter(c=>c.k!=='_review').forEach((col,i)=>{
-    const td=tds[i]; if(!td)return;
-    let v=p[col.k];
-    if(col.k==='_callees'||col.k==='_callers'){td.innerHTML=renderDepCell(p,col.k);return;}
-    if(Array.isArray(v)) v=v.join('; ');
-    else if(col.k==='csharp_popularity') v=v!=null?`${v}/5`:'—';
-    else if(col.k==='needs_review') v=v?'⚠':'';
-    else v=v??'';
-    td.textContent=v;
-    let cls=col.cls;
-    if(col.k==='difficulty') cls+=' '+diffCls(String(v));
-    if(col.k==='risk_level') cls+=' '+riskCls(String(v));
-    if(col.k==='needs_review'&&v) cls+=' rev-yes';
-    td.className=cls.trim();
-  });
+  COLS.filter(c=>c.k!=='_review').forEach((col,i)=>{const td=tds[i];if(!td)return;let v=p[col.k];if(col.k==='_callees'||col.k==='_callers'){td.innerHTML=renderDepCell(p,col.k);return;}if(col.k==='_cs_map'){return;}if(Array.isArray(v))v=v.join('; ');else if(col.k==='csharp_popularity')v=v!=null?`${v}/5`:'—';else if(col.k==='needs_review')v=v?'⚠':'';else v=v??'';td.textContent=v;let cls=col.cls;if(col.k==='difficulty')cls+=' '+diffCls(String(v));if(col.k==='risk_level')cls+=' '+riskCls(String(v));if(col.k==='needs_review'&&v)cls+=' rev-yes';td.className=cls.trim();});
 }
 
-/* ════ DEP CELL ════ */
+/* ════ DEP CELL (v2.0 — func_kind colours) ════ */
 function renderDepCell(p,key){
   if(key==='_callees'){
-    const callees=(p.callees||[]).filter(c=>c.kind!=='stdlib');
-    if(!callees.length) return '<span style="color:var(--dim2);font-size:9px">—</span>';
-    return callees.slice(0,4).map(c=>{
-      const tip=c.file?`${c.file}:L${c.line||'?'}`:c.kind;
-      return `<span class="dep-call dep-${c.kind||'unknown'}" title="${esc(tip)}">${esc(c.name)}</span>`;
-    }).join('')+(callees.length>4?`<span style="color:var(--dim2);font-size:9px"> +${callees.length-4}</span>`:'');
+    const c=(p.callees||[]).filter(c=>c.kind!=='stdlib'||c.func_kind==='create');
+    if(!c.length)return'<span style="color:var(--dim2);font-size:9px">—</span>';
+    return c.slice(0,5).map(_calleeChipHtml).join('')+(c.length>5?`<span style="color:var(--dim2);font-size:9px"> +${c.length-5}</span>`:'');
   }
   if(key==='_callers'){
-    const callers=p.callers||[];
-    if(!callers.length) return '<span style="color:var(--dim2);font-size:9px">—</span>';
-    return callers.slice(0,3).map(c=>{
-      const label=c.caller_func||c.file;
-      return `<span class="dep-call dep-caller" title="${esc(c.file+':L'+(c.line||'?'))}">${esc(label)}</span>`;
-    }).join('')+(callers.length>3?`<span style="color:var(--dim2);font-size:9px"> +${callers.length-3}</span>`:'');
+    const c=p.callers||[];
+    if(!c.length)return'<span style="color:var(--dim2);font-size:9px">—</span>';
+    return c.slice(0,3).map(_callerChipHtml).join('')+(c.length>3?`<span style="color:var(--dim2);font-size:9px"> +${c.length-3}</span>`:'');
   }
-  return '';
+  return'';
 }
 
 /* ════ CSV TABLE ════ */
 const COLS=[
-  {k:'id',h:'番号',cls:''},{k:'source_snippet',h:'C/Pro*C',cls:'c-src'},
+  {k:'id',h:'#',cls:''},{k:'source_snippet',h:'C/Pro*C',cls:'c-src'},
   {k:'raw_type',h:'種別',cls:''},{k:'pattern_type',h:'タイプ',cls:''},
   {k:'sub_types',h:'サブ',cls:''},{k:'summary_vi',h:'概要',cls:''},
   {k:'csharp_snippet',h:'C#パターン',cls:'c-cs'},
+  {k:'_cs_map',h:'C#行',cls:''},
   {k:'difficulty',h:'難易度',cls:''},{k:'migration_strategy',h:'移行戦略',cls:''},
   {k:'risk_level',h:'リスク',cls:''},{k:'risk_strategy',h:'リスク戦略',cls:''},
   {k:'csharp_popularity',h:'普及度',cls:''},{k:'needs_review',h:'確認',cls:''},
@@ -1309,105 +1115,76 @@ function diffCls(v){if(v==='易しい')return'diff-e';if(v==='普通')return'dif
 function riskCls(v){if(v==='低')return'risk-l';if(v==='中')return'risk-m';if(v==='高')return'risk-h';if(v==='非常に高い')return'risk-x';return'';}
 
 function renderCSV(path,data){
-  const sid=safeId(path);
-  const head=$('csvHead-'+sid),body=$('csvBody-'+sid); if(!head||!body)return;
-  head.innerHTML=''; body.innerHTML='';
-  COLS.forEach(c=>{
-    const th=document.createElement('th'); th.textContent=c.h;
-    if(c.k==='_review') th.style.cssText='position:sticky;right:0;background:var(--s2);z-index:3;';
-    head.appendChild(th);
-  });
+  const sid=safeId(path),head=$('csvHead-'+sid),body=$('csvBody-'+sid);if(!head||!body)return;
+  head.innerHTML='';body.innerHTML='';
+  COLS.forEach(c=>{const th=document.createElement('th');th.textContent=c.h;if(c.k==='_review')th.style.cssText='position:sticky;right:0;background:var(--s2);z-index:3;';head.appendChild(th);});
   data.forEach(p=>{
-    const tr=document.createElement('tr');
-    tr.dataset.pid=p.id; tr.style.cursor='pointer';
-    tr.onclick=()=>onRowClick(path,p.id);
+    const tr=document.createElement('tr');tr.dataset.pid=p.id;tr.style.cursor='pointer';tr.onclick=()=>onRowClick(path,p.id);
     COLS.forEach(col=>{
       const td=document.createElement('td');
-      if(col.k==='_review'){
-        td.className='rv-cell'; td.style.cssText='position:sticky;right:0;background:var(--s2);';
-        td.innerHTML=reviewBadgeHtml(path,p.id); tr.appendChild(td); return;
-      }
-      if(col.k==='_callees'||col.k==='_callers'){
-        td.className=col.cls; td.innerHTML=renderDepCell(p,col.k); tr.appendChild(td); return;
+      if(col.k==='_review'){td.className='rv-cell';td.style.cssText='position:sticky;right:0;background:var(--s2);';td.innerHTML=reviewBadgeHtml(path,p.id);tr.appendChild(td);return;}
+      if(col.k==='_callees'||col.k==='_callers'){td.className=col.cls;td.innerHTML=renderDepCell(p,col.k);tr.appendChild(td);return;}
+      if(col.k==='_cs_map'){
+        if(p.cs_line_start&&p.cs_line_start>0){td.innerHTML=`<span class="map-badge" title="C#ファイル L${p.cs_line_start}–${p.cs_line_end}" onclick="event.stopPropagation();jumpToCsLine('${path}',${p.cs_line_start},${p.cs_line_end})">L${p.cs_line_start}–${p.cs_line_end}</span>`;}
+        else{td.innerHTML='<span style="color:var(--dim2);font-size:9px">—</span>';}
+        tr.appendChild(td);return;
       }
       let v=p[col.k];
-      if(Array.isArray(v)) v=v.join('; ');
-      else if(col.k==='csharp_popularity') v=v!=null?`${v}/5`:'—';
-      else if(col.k==='needs_review') v=v?'⚠':'';
-      else v=v??'';
-      td.textContent=v;
-      let cls=col.cls;
-      if(col.k==='difficulty') cls+=' '+diffCls(String(v));
-      if(col.k==='risk_level') cls+=' '+riskCls(String(v));
-      if(col.k==='needs_review'&&v) cls+=' rev-yes';
-      td.className=cls.trim(); tr.appendChild(td);
+      if(Array.isArray(v))v=v.join('; ');else if(col.k==='csharp_popularity')v=v!=null?`${v}/5`:'—';else if(col.k==='needs_review')v=v?'⚠':'';else v=v??'';
+      td.textContent=v;let cls=col.cls;
+      if(col.k==='difficulty')cls+=' '+diffCls(String(v));if(col.k==='risk_level')cls+=' '+riskCls(String(v));if(col.k==='needs_review'&&v)cls+=' rev-yes';
+      td.className=cls.trim();tr.appendChild(td);
     });
     body.appendChild(tr);
   });
 }
+function jumpToCsLine(path,startLine,endLine){const sid=safeId(path);highlightLines('csLines-'+sid,startLine,endLine,true,'cs');$('csPin-'+sid).textContent=`L${startLine}–${endLine}`;}
 
 /* ════ DOWNLOAD ════ */
-function dlCS(path){
-  const st=getState(path); if(!st.csText)return;
-  const fname=path.split('/').pop().replace(/\.(c|pc|h)$/i,'_migrated.cs');
-  _dl(st.csText,fname,'text/plain');
-}
+function dlCS(path){const st=getState(path);if(!st.csText)return;const fname=path.split('/').pop().replace(/\.(c|pc|h)$/i,'_migrated.cs');_dl(st.csText,fname,'text/plain');}
 function dlCSV(path){
-  const st=getState(path); if(!st.patterns.length)return;
-  const e2=v=>'"'+String(v).replace(/"/g,'""')+'"';
-  const statusMap={ok:'承認',fix:'要修正',reject:'却下'};
-  const exportCols=[...COLS.filter(c=>c.k!=='_review'&&c.k!=='_callees'&&c.k!=='_callers'),
+  const st=getState(path);if(!st.patterns.length)return;
+  const e2=v=>'"'+String(v).replace(/"/g,'""')+'"';const sm={ok:'承認',fix:'要修正',reject:'却下'};
+  const ec=[...COLS.filter(c=>c.k!=='_review'&&c.k!=='_callees'&&c.k!=='_callers'&&c.k!=='_cs_map'),
+    {k:'cs_line_start',h:'C#開始行'},{k:'cs_line_end',h:'C#終了行'},
+    {k:'func_calls',h:'func_calls(call)'},{k:'func_creates',h:'func_creates(create)'},
     {k:'_callees_str',h:'Callees'},{k:'_callers_str',h:'Callers'},{k:'_rv_status',h:'レビューステータス'}];
-  const hdr=exportCols.map(c=>e2(c.h)).join(',');
-  const rows=st.patterns.map(p=>{
-    const rv=st.reviews[p.id]||{};
-    return exportCols.map(col=>{
-      if(col.k==='_rv_status') return e2(statusMap[rv.status]||'未レビュー');
-      if(col.k==='_callees_str') return e2((p.callees||[]).filter(c=>c.kind!=='stdlib').map(c=>`${c.name}(${c.file||c.kind})`).join('; '));
-      if(col.k==='_callers_str') return e2((p.callers||[]).map(c=>`${c.caller_func||'?'}@${c.file}:${c.line}`).join('; '));
-      let v=p[col.k];
-      if(Array.isArray(v)) v=v.join('; ');
-      else if(col.k==='csharp_popularity') v=v!=null?`${v}/5`:'';
-      else if(col.k==='needs_review') v=v?'要確認':'';
-      else v=v??'';
-      return e2(v);
-    }).join(',');
-  });
-  const fname=path.split('/').pop().replace(/\.(c|pc|h)$/i,'_patterns.csv');
-  _dl('\uFEFF'+[hdr,...rows].join('\n'),fname,'text/csv');
+  const hdr=ec.map(c=>e2(c.h)).join(',');
+  const rows=st.patterns.map(p=>{const rv=st.reviews[p.id]||{};return ec.map(col=>{
+    if(col.k==='_rv_status')return e2(sm[rv.status]||'未レビュー');
+    if(col.k==='_callees_str')return e2((p.callees||[]).filter(c=>c.kind!=='stdlib').map(c=>`${c.name}[${c.func_kind||'call'}](${c.file||c.kind})`).join('; '));
+    if(col.k==='_callers_str')return e2((p.callers||[]).map(c=>`${c.caller_func||'?'}@${c.file}:${c.line}`).join('; '));
+    if(col.k==='func_calls')return e2(Array.isArray(p.func_calls)?p.func_calls.join('; '):'');
+    if(col.k==='func_creates')return e2(Array.isArray(p.func_creates)?p.func_creates.join('; '):'');
+    let v=p[col.k];if(Array.isArray(v))v=v.join('; ');else if(col.k==='csharp_popularity')v=v!=null?`${v}/5`:'';else if(col.k==='needs_review')v=v?'要確認':'';else v=v??'';return e2(v);
+  }).join(',');});
+  _dl('\uFEFF'+[hdr,...rows].join('\n'),path.split('/').pop().replace(/\.(c|pc|h)$/i,'_patterns.csv'),'text/csv');
 }
-function _dl(content,filename,mime){
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(new Blob([content],{type:mime}));
-  a.download=filename; a.click();
-}
+function _dl(content,filename,mime){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([content],{type:mime}));a.download=filename;a.click();}
 
 /* ════ RESIZE ════ */
 function setupResize(sid){
-  const handle=$('resizeH-'+sid), topSec=$('topSection-'+sid);
-  if(!handle||!topSec)return;
-  const workspace=topSec.closest('.view-panel');
-  let dragging=false,startY=0,startH=0;
-  handle.addEventListener('mousedown',e=>{
-    dragging=true; startY=e.clientY; startH=topSec.getBoundingClientRect().height;
-    handle.classList.add('dragging'); document.body.style.userSelect='none'; document.body.style.cursor='row-resize';
-  });
-  document.addEventListener('mousemove',e=>{
-    if(!dragging)return;
-    const wsH=workspace.getBoundingClientRect().height;
-    const newH=Math.max(100,Math.min(wsH-100,startH+(e.clientY-startY)));
-    topSec.style.flex=`0 0 ${(newH/wsH*100).toFixed(1)}%`;
-  });
-  document.addEventListener('mouseup',()=>{
-    if(!dragging)return;
-    dragging=false; handle.classList.remove('dragging');
-    document.body.style.userSelect=''; document.body.style.cursor='';
-  });
+  const handle=$('resizeH-'+sid),topSec=$('topSection-'+sid);if(!handle||!topSec)return;
+  const workspace=topSec.closest('.view-panel');let dragging=false,startY=0,startH=0;
+  handle.addEventListener('mousedown',e=>{dragging=true;startY=e.clientY;startH=topSec.getBoundingClientRect().height;handle.classList.add('dragging');document.body.style.userSelect='none';document.body.style.cursor='row-resize';});
+  document.addEventListener('mousemove',e=>{if(!dragging)return;const wsH=workspace.getBoundingClientRect().height;const newH=Math.max(100,Math.min(wsH-100,startH+(e.clientY-startY)));topSec.style.flex=`0 0 ${(newH/wsH*100).toFixed(1)}%`;});
+  document.addEventListener('mouseup',()=>{if(!dragging)return;dragging=false;handle.classList.remove('dragging');document.body.style.userSelect='';document.body.style.cursor='';});
 }
+
+/* ════ UI HELPERS ════ */
+function agSet(idx,sid,state){const el=$(`ag${idx}-${sid}`);if(!el)return;el.classList.remove('run','done','err','db','nollm');if(state)el.classList.add(state);}
+function agsDone(sid,upTo){for(let i=0;i<=5;i++)agSet(i,sid,i<upTo?'done':i===upTo?'run':'');}
+function setTabDot(sid,state){const el=$('tabDot-'+sid);if(!el)return;el.className='tab-dot dot-'+state;}
+function setBadge(path,cls,txt){const sid=safeId(path),el=$('fiBadge-'+sid);if(!el)return;el.className='fi-badge'+(cls?' '+cls:'');el.textContent=txt;}
+function setFStatus(sid,msg,cls=''){const el=$('fStatus-'+sid);if(!el)return;el.textContent=msg;el.className='f-status'+(cls?' '+cls:'');}
+function addLog(sid,msg,cls=''){const wrap=$('logScroll-'+sid);if(!wrap)return;$('logEmpty-'+sid)?.remove();const line=document.createElement('div');line.className='log-line';line.innerHTML=`<span class="log-ts">${ts()}</span><span class="log-msg ${cls}">${esc(msg)}</span>`;wrap.appendChild(line);wrap.scrollTop=wrap.scrollHeight;}
+function showTable(sid){$('logOverlay-'+sid)?.classList.remove('visible');$('tblWrap-'+sid)?.classList.add('visible');}
+function showLog(sid){$('tblWrap-'+sid)?.classList.remove('visible');$('logOverlay-'+sid)?.classList.add('visible');}
 
 /* ── Init ── */
 pingServer();
-setInterval(pingServer, POLL_MS);
+setInterval(pingServer,POLL_MS);
+setInterval(loadDbFileList,60000);
 </script>
 </body>
 </html>
