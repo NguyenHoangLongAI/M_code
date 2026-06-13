@@ -1,19 +1,28 @@
 """
-pipeline.py — Migration Pipeline Orchestrator v7
+pipeline.py — Migration Pipeline Orchestrator v8
 =================================================
+v8 changes vs v7:
+  - Agent 4 (csharp_generator_agent, LLM) giữ nguyên — vẫn gọi LLM để
+    sinh toàn bộ file C#, NHƯNG được yêu cầu emit marker comments
+    // [P:<id>:START] ... // [P:<id>:END] cho mỗi pattern (xem
+    prompts/agent_prompts.py — CSHARP_GEN_SYSTEM/USER).
+  - Sau Agent4: agents/cs_marker_mapper.attach_marker_mapping() parse
+    các marker này để gắn cs_line_start/cs_line_end vào từng pattern,
+    đồng thời STRIP marker khỏi nội dung trước khi ghi file .cs cuối.
+  - Fallback: nếu LLM bỏ sót marker cho 1 số pattern (cs_line_start
+    vẫn None sau bước trên), dùng agents/cs_line_mapper.attach_cs_line_mapping()
+    (fuzzy snippet-matching, không gọi LLM) để cố gắng map phần còn lại.
+
 v7 changes vs v6:
   - Agent 1, 2, 3: tất cả batches chạy SONG SONG bằng ThreadPoolExecutor
     → file 50-100 chunks: từ N×T giây → ~T giây (T = thời gian 1 batch)
-  - Agent 4 replaced: csharp_generator_agent (LLM) → csharp_assembler_agent (rule-based)
-    → không tốn thêm API call, không tốn thời gian
-  - Mỗi pattern nhận cs_line_start / cs_line_end cho 1-1 UI mapping
   - run_pipeline_multi(): chạy nhiều files SONG SONG (dùng cho batch migration)
 
 Agent responsibilities:
   Agent 1 — Extract patterns (parallel chunks, no LLM order dependency)
   Agent 2 — Classify patterns (parallel batches)
   Agent 3 — Translate patterns → csharp_snippet + analysis (parallel batches)
-  Agent 4 — [NO LLM] Rule-based assembly → cs_line_start / cs_line_end per pattern
+  Agent 4 — [LLM] Generate full C# file with [P:id] markers
   Agent 5 — CSV report (pure Python)
   Agent 6 — Cross-file call graph (background thread after pipeline)
 """
@@ -31,6 +40,8 @@ from agents.extractor_agent          import extract_patterns
 from agents.classifier_agent         import classify_patterns
 from agents.translator_agent         import translate_patterns
 from agents.csharp_generator_agent   import generate_csharp_file
+from agents.cs_marker_mapper         import attach_marker_mapping
+from agents.cs_line_mapper           import attach_cs_line_mapping
 from agents.report_builder_agent     import build_csv_rows, print_summary
 from config import OUTPUT_DIR
 
@@ -49,7 +60,7 @@ def run_pipeline(source_path: str, output_dir: str = OUTPUT_DIR) -> dict:
     """
     t0 = time.time()
     print(f"\n{'═'*60}")
-    print(f"  C → C# Migration Pipeline  [v7 / Parallel Agents]")
+    print(f"  C → C# Migration Pipeline  [v8 / Pattern-ID Markers]")
     print(f"  Source : {source_path}")
     print(f"  Output : {output_dir}")
     print(f"{'═'*60}\n")
@@ -91,10 +102,25 @@ def run_pipeline(source_path: str, output_dir: str = OUTPUT_DIR) -> dict:
     )
     print(f"  [Pipeline] Saved per-file patterns → {per_file_debug.name}")
 
-    # ── Step 4: Assemble C# file (NO LLM, rule-based) ──────────
-    print("\n[Step 4] C# File Generation (LLM + parallel) ...")
+    # ── Step 4: Generate C# file (LLM, with [P:id] markers) ────
+    print("\n[Step 4] C# File Generation (LLM, pattern-id markers) ...")
     t4 = time.time()
-    csharp_source = generate_csharp_file(filename, source_code, migration_data)
+
+    csharp_source_raw = generate_csharp_file(filename, source_code, migration_data)
+
+    # Parse // [P:<id>:START] / // [P:<id>:END] markers → cs_line_start/end,
+    # and return the source with markers stripped.
+    csharp_source = attach_marker_mapping(migration_data, csharp_source_raw)
+
+    # Fallback: patterns the LLM forgot to mark → fuzzy snippet matching
+    # (no LLM call). Operates on the SAME dict objects (in-place mutation),
+    # so migration_data stays consistent.
+    unmapped = [p for p in migration_data if p.get("cs_line_start") is None]
+    if unmapped:
+        print(f"  [Step 4] {len(unmapped)} pattern(s) missing [P:id] markers "
+              f"→ fallback fuzzy line mapping ...")
+        attach_cs_line_mapping(unmapped, csharp_source)
+
     cs_path = write_csharp_file(csharp_source, filename, output_dir)
     print(f"  [Step 4] Done in {time.time()-t4:.1f}s")
     save_json_debug(migration_data, "4_assembled", output_dir)
