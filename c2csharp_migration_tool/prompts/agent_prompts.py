@@ -157,14 +157,12 @@ COMMENT PATTERNS (preserve verbatim — do NOT translate or modify):
 """
 
 EXTRACTOR_USER = """Source file: {filename}
-Note: This is a chunk of the file. The first line of this chunk corresponds to line {line_offset} in the original file.
-Report ALL line_range values as ABSOLUTE line numbers in the original file (i.e. the first line you see here = line {line_offset}).
 
 ```c
 {source_code}
 ```
 
-Extract all patterns from this chunk. Return pure JSON array only."""
+Extract all patterns. Return pure JSON array only."""
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -411,4 +409,7 @@ the "cs_equivalent" column unless the column is empty.
 Translate the ENTIRE source file above to C# using:
   1. The migration map above for every matched pattern
   2. The type/include rules in the system prompt for anything not in the map
+Wrap each pattern's output in // [P:<id>:START] ... // [P:<id>:END] markers
+as specified in the system prompt — every pattern id from the migration map
+must appear exactly once as a marker pair.
 Output ONLY the complete C# source — no explanation, no markdown."""
